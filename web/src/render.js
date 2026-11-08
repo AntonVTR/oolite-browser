@@ -135,6 +135,23 @@ function program(gl, vsSrc, fsSrc) {
   return { prog: p, u: uniforms, a: attributes };
 }
 
+// World → view matrix for the flight camera.
+//
+// Oolite's ship frame is left-handed (X = starboard, Y = up, Z = nose) while
+// WebGL's camera looks down -Z in a right-handed frame. Negating the Z row of
+// the inverse rigid transform makes the camera look along the nose instead of
+// the tail; culling is off, so the mirrored winding does not matter.
+export function buildView(out, pos, quat) {
+  const cam = mat4();
+  mat4FromQuatPos(cam, quat, pos);
+  mat4InvertRigid(out, cam);
+  out[2] = -out[2];
+  out[6] = -out[6];
+  out[10] = -out[10];
+  out[14] = -out[14];
+  return out;
+}
+
 export class Renderer {
   constructor(canvas) {
     this.canvas = canvas;
@@ -265,9 +282,7 @@ export class Renderer {
   // ---- frame ---------------------------------------------------------------
   beginFrame(camPos, camQuat) {
     const gl = this.gl;
-    const cam = mat4();
-    mat4FromQuatPos(cam, camQuat, camPos);
-    mat4InvertRigid(this.view, cam);
+    buildView(this.view, camPos, camQuat);
     this.camQuat = camQuat;
     this.camPos = camPos;
     gl.viewport(0, 0, this.canvas.width, this.canvas.height);
@@ -290,7 +305,7 @@ export class Renderer {
     return [
       x + cq[3] * tx + (cq[1] * tz - cq[2] * ty),
       y + cq[3] * ty + (cq[2] * tx - cq[0] * tz),
-      z + cq[3] * tz + (cq[0] * ty - cq[1] * tx),
+      -(z + cq[3] * tz + (cq[0] * ty - cq[1] * tx)),
     ];
   }
 
@@ -317,10 +332,8 @@ export class Renderer {
 
   drawStars(stars) {
     // Stars rotate with the camera but never translate (infinite distance).
-    const rot = mat4();
-    mat4FromQuatPos(rot, this.camQuat, [0, 0, 0]);
     const view = mat4();
-    mat4InvertRigid(view, rot);
+    buildView(view, [0, 0, 0], this.camQuat);
     this.drawPoints(stars, view, 1.0);
   }
 
@@ -333,7 +346,7 @@ export class Renderer {
     gl.uniformMatrix4fv(p.u.uMV, false, this.mv);
     const sd = opts.sunDir || [0, 0, 1];
     gl.uniform3f(p.u.uSunDir, sd[0], sd[1], sd[2]);
-    const amb = opts.ambient || [0.3, 0.3, 0.34];
+    const amb = opts.ambient || [0.42, 0.42, 0.46];
     const sc = opts.sunCol || [0.85, 0.85, 0.8];
     gl.uniform3f(p.u.uAmbient, amb[0], amb[1], amb[2]);
     gl.uniform3f(p.u.uSunCol, sc[0], sc[1], sc[2]);
@@ -348,7 +361,8 @@ export class Renderer {
       gl.bindTexture(gl.TEXTURE_2D, tex || null);
       gl.uniform1f(p.u.uUseTex, tex ? 1 : 0);
       if (!tex) {
-        const c = opts.fallbackColor || [0.6, 0.6, 0.6, 1];
+        // no texture: prefer the explicit fallback, then the tint, then grey
+        const c = opts.fallbackColor || opts.tint || [0.6, 0.6, 0.6, 1];
         gl.uniform4f(p.u.uTint, c[0], c[1], c[2], c.length > 3 ? c[3] : 1);
       }
       gl.bindBuffer(gl.ARRAY_BUFFER, g.pos);

@@ -444,11 +444,14 @@ export class Hud {
     ctx.lineWidth = Math.max(1, this.L(this.hud.crosshair_width || 1.5));
     ctx.beginPath();
     for (const seg of defs) {
-      // points are (x1,y1,x2,y2) fractions of crosshair_scale, y up in Oolite
-      ctx.moveTo(this.X(seg[0] * scale), this.Y(seg[1] * scale));
-      ctx.lineTo(this.X(seg[2] * scale), this.Y(seg[3] * scale));
+      // crosshair entries are 6-tuples: (alpha1, x1, y1, alpha2, x2, y2),
+      // y up in Oolite — see OOCrosshairs.m setUpDataForOnePoint:
+      ctx.globalAlpha = this.alpha * (seg[0] + seg[3]) * 0.5;
+      ctx.moveTo(this.X(seg[1] * scale), this.Y(seg[2] * scale));
+      ctx.lineTo(this.X(seg[4] * scale), this.Y(seg[5] * scale));
     }
     ctx.stroke();
+    ctx.globalAlpha = 1;
   }
 
   // ---- MFDs: target status (left), messages (right) ------------------------
