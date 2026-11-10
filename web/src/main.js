@@ -412,6 +412,10 @@ async function main() {
     jumpRequested = true;
   });
 
+  // Loading is done: hand over to the title screen.
+  el('loading').classList.add('hidden');
+  el('title').classList.remove('hidden');
+
   // ?autostart skips the title screen (used by the headless smoke test)
   const query = new URLSearchParams(location.search);
   if (query.has('autostart')) {
