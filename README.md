@@ -34,17 +34,17 @@ gyro, keyboard/mouse and gamepad.
 
 ## Controls
 
-| Action | Keyboard / mouse | Touch |
-| --- | --- | --- |
-| Pitch / yaw | `↑ ↓ ← →` or mouse | left stick |
-| Roll | `,` / `.` or `A` `D` | ⟲ ⟳ buttons |
-| Throttle | `W` / `S`, `F` full, `R` reverse | slider |
-| Injectors (boost) | `I` | BOOST |
-| Fire | `Space` / left mouse | FIRE |
-| Next target | `Tab` | TGT |
-| Dock | `Enter` | DOCK |
-| Jump | `J` | JUMP |
-| Gyro steering | `G` | GYRO |
+| Action | Keyboard / mouse | Touch | Gamepad |
+| --- | --- | --- | --- |
+| Pitch / yaw | `↑ ↓ ← →` or mouse | left stick | left stick |
+| Roll | `,` / `.` or `A` `D` | ⟲ ⟳ buttons | right stick X / D-pad ← → |
+| Throttle | `W` / `S`, `F` full, `R` reverse | slider | right stick Y / D-pad ↑ ↓ |
+| Injectors (boost) | `I` | BOOST | LT / RB / X |
+| Fire | `Space` / left mouse | FIRE | RT / A |
+| Next target | `Tab` | TGT | LB / B |
+| Dock | `Enter` | DOCK | Back |
+| Jump | `J` | JUMP | Y |
+| Gyro steering | `G` | GYRO | — |
 
 Docking: fly within 400 m of the station at under 120 m/s (or press DOCK under
 1500 m). Refuel and trade from the station screen.

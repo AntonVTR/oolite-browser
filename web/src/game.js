@@ -8,20 +8,11 @@ import {
   quatMul, quatAxisAngle, quatNormalize, quatRotate,
   norm, sub, add, scale, dot, cross, len, dist,
 } from './math.js';
+import { makeGalaxy, distanceLy } from './galaxy.js';
 
-// Classic Elite-style sector (names from the original game's neighbourhood).
-// shortcut: real Oolite generates 256 systems from a seed in Universe.m;
-//           this port ships a fixed 8-system circuit until that is ported.
-export const SYSTEMS = [
-  { name: 'LAVE', econ: 5, description: 'An agricultural world famous for its radish.' },
-  { name: 'LEESTI', econ: 1, description: 'Wealthy industrial system, home of Distrista gin.' },
-  { name: 'DISO', econ: 6, description: 'A poor farming world with cheap food.' },
-  { name: 'RIEDQUAT', econ: 7, description: 'Lawless and poor — pirates abound.' },
-  { name: 'ZAONCE', econ: 2, description: 'Rich industrial world, high tech.' },
-  { name: 'TIONISLA', econ: 3, description: 'Balanced economy, quiet backwater.' },
-  { name: 'ISINOR', econ: 0, description: 'Very rich agricultural paradise.' },
-  { name: 'QUTIRI', econ: 4, description: 'Mining world exporting minerals and ore.' },
-];
+// The real 256-system Oolite galaxy (galaxy 1), generated from the upstream
+// seed — system 0 is Tibedied, Lave is system 7, as in the original game.
+export const SYSTEMS = makeGalaxy(1).systems;
 
 // Elite-flavoured commodities: price moves against the system's economy.
 const GOODS = [
@@ -40,7 +31,11 @@ const GREEN = [0, 1, 0];
 const BLUE = [0, 0, 1];
 const YELLOW = [1, 1, 0];
 
-const SHIP_KEYS = ['mamba', 'krait', 'cobramk1', 'asp', 'python'];
+// NPC rosters: combat ships hunt as hostile pirates, heavy haulers cross
+// space in peace. Speed / turn / energy / bounty come from the real shipdata
+// through def() below, so the heavy ships really are slow and tough.
+const PIRATE_KEYS = ['mamba', 'krait', 'cobramk1', 'asp', 'gecko', 'viper'];
+const TRADER_KEYS = ['python', 'anaconda', 'boa', 'boa-mk2'];
 
 function shipData(g, key) { return g.shipdata[key]; }
 function def(g, key) { return g.shipdata[`oolite_template_${key}`] || {}; }
@@ -84,6 +79,9 @@ function makeShip(g, key, pos, quat, opts = {}) {
     hostile: !!opts.hostile,
     color: opts.hostile ? RED : GREEN,
     role: opts.role || 'pirate',
+    // Hull fraction below which this ship may run for it instead of dying
+    // game — one roll per ship, so badly damaged pirates break off unevenly.
+    breakOffAt: 0.03 + Math.random() * 0.07,
     fireCooldown: 0,
     think: 0,
     strafePhase: Math.random() * Math.PI * 2,
@@ -102,8 +100,12 @@ function spawnStation(g) {
   return st;
 }
 
-function spawnPirate(g) {
-  const key = SHIP_KEYS[Math.floor(Math.random() * (SHIP_KEYS.length - 1))];
+export function spawnPirate(g) {
+  // Round-robin so every combat ship in the roster actually shows up.
+  const key = PIRATE_KEYS[g.pirateSeq++ % PIRATE_KEYS.length];
+  const d = def(g, key);
+  // Most shipdata templates carry no bounty; scale those by hull energy.
+  const bounty = d.bounty || Math.round((d.max_energy || 256) / 5);
   const angle = Math.random() * Math.PI * 2;
   const elev = (Math.random() - 0.5) * 0.6;
   const range = 2500 + Math.random() * 4000;
@@ -113,20 +115,21 @@ function spawnPirate(g) {
     p[1] + Math.sin(elev) * range,
     p[2] + Math.sin(angle) * range,
   ];
-  const s = makeShip(g, key, pos, [0, 0, 0, 1], { hostile: true, bounty: 25 + Math.floor(Math.random() * 6) * 10 });
+  const s = makeShip(g, key, pos, [0, 0, 0, 1], { hostile: true, bounty, role: 'pirate' });
   s.think = Math.random();
   g.entities.push(s);
   return s;
 }
 
-function spawnTrader(g) {
-  const key = 'python';
+export function spawnTrader(g) {
+  const key = TRADER_KEYS[g.traderSeq++ % TRADER_KEYS.length];
   const angle = Math.random() * Math.PI * 2;
   const range = 3000 + Math.random() * 5000;
   const p = g.player.pos;
   const pos = [p[0] + Math.cos(angle) * range, p[1] + (Math.random() - 0.5) * 1500, p[2] + Math.sin(angle) * range];
-  const s = makeShip(g, key, pos, [0, 0, 0, 1], { hostile: false, role: 'trader', name: 'Python Trader' });
+  const s = makeShip(g, key, pos, [0, 0, 0, 1], { hostile: false, role: 'trader' });
   g.entities.push(s);
+  return s;
 }
 
 // ---------------------------------------------------------------------------
@@ -140,7 +143,7 @@ export function createGame(assets) {
     showCrosshair: true,
     weaponsOnline: true,
     weaponKey: 'WEAPON_BEAM_LASER',
-    systemIndex: 0,
+    systemIndex: 7, // Lave — the classic starting system
     events: [],
     messages: [],
     explosions: [],
@@ -156,6 +159,8 @@ export function createGame(assets) {
     dialRoll: 0,
     dialPitch: 0,
     kills: 0,
+    pirateSeq: 0,
+    traderSeq: 0,
     hasEquipment: () => false, // shortcut: no equipment system yet
 
     shipdata: assets.plists.shipdata,
@@ -212,7 +217,7 @@ export function cargoUsed(g) {
 export function marketFor(g) {
   const sys = SYSTEMS[g.systemIndex];
   return GOODS.map((good, i) => {
-    const drift = (3.5 - sys.econ) * 0.08 * good.trend;
+    const drift = (3.5 - sys.economy) * 0.08 * good.trend;
     const jitter = (pseudoRandom(g.systemIndex * 31 + i * 7) - 0.5) * 0.1;
     const price = Math.max(1, Math.round(good.base * (1 + drift + jitter) * 10) / 10);
     const stock = 8 + Math.floor(pseudoRandom(g.systemIndex * 17 + i * 13) * 40);
@@ -269,9 +274,24 @@ export function launch(g) {
 
 export function jump(g) {
   if (g.phase !== 'flight') return false;
-  if (g.player.fuel < 10) { pushMessage(g, 'INSUFFICIENT FUEL', RED); return false; }
-  g.player.fuel -= 10;
-  g.systemIndex = (g.systemIndex + 1) % SYSTEMS.length;
+  const from = SYSTEMS[g.systemIndex];
+  // Oolite rule: any system within 7 ly, and the jump costs the distance in
+  // light years of fuel (fuel is in tenths of a ly) — see PlayerEntity.m
+  // fuelRequiredForJump / maxHyperspaceDistance.
+  const reach = Math.min(7, g.player.fuel / 10);
+  let target = -1;
+  let cost = 0;
+  for (let step = 1; step < SYSTEMS.length; step++) {
+    const idx = (from.index + step) % SYSTEMS.length;
+    const ly = distanceLy(from, SYSTEMS[idx]);
+    if (ly <= reach) { target = idx; cost = Math.max(1, Math.round(ly * 10)); break; }
+  }
+  if (target < 0) {
+    pushMessage(g, g.player.fuel < 70 ? 'INSUFFICIENT FUEL FOR JUMP' : 'NO SYSTEM IN RANGE', RED);
+    return false;
+  }
+  g.player.fuel -= cost;
+  g.systemIndex = target;
   g.events.push({ type: 'jump' });
   // Reset the sky: drop everything except the station, respawn contacts.
   g.entities = [];
@@ -384,6 +404,18 @@ function updateNPC(e, g, dt) {
     // Traders drift past on a straight line and never engage.
     if (d > 20000) { e.alive = false; return; }
     integrate(e, dt, 0.5);
+    return;
+  }
+
+  // Badly damaged hostiles may break off instead of fighting to the death.
+  if (e.hostile && !e.breakingOff && e.energy <= e.maxEnergy * (e.breakOffAt || 0.08)) {
+    e.breakingOff = true;
+    pushMessage(g, `${String(e.name || e.shipKey).toUpperCase()} BREAKING OFF`, BLUE, 4);
+  }
+  if (e.breakingOff) {
+    if (d > 20000) { e.alive = false; return; }
+    steerToward(e, add(e.pos, sub(e.pos, p.pos)), dt, e.pitchRate);
+    integrate(e, dt, 1);
     return;
   }
 

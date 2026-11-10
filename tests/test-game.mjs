@@ -1,24 +1,44 @@
 // Headless gameplay checks for the simulation. Run: node tests/test-game.mjs
 // Uses the real shipdata.plist and .dat meshes shipped in web/assets.
 import assert from 'node:assert';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const { parsePlist } = await import(join(root, 'web/src/plist.js'));
 const { parseMesh } = await import(join(root, 'web/src/mesh.js'));
-const { createGame, stepGame, launch, marketFor, buyGood, sellGood, cargoUsed, jump, SYSTEMS } =
-  await import(join(root, 'web/src/game.js'));
+const { SHIP_DEFS, resolveTextureName } = await import(join(root, 'web/src/assets.js'));
+const { createGame, stepGame, launch, marketFor, buyGood, sellGood, cargoUsed, jump, SYSTEMS,
+  spawnPirate, spawnTrader } = await import(join(root, 'web/src/game.js'));
+const { distanceLy } = await import(join(root, 'web/src/galaxy.js'));
 
 const read = (p) => readFileSync(join(root, 'web/assets', p), 'utf8');
 const shipdata = parsePlist(read('config/shipdata.plist'));
 const parsedMeshes = {};
-for (const m of ['cobra3', 'mamba', 'krait', 'python', 'cobramk1', 'asp', 'coriolis']) {
+for (const m of ['cobra3', 'mamba', 'krait', 'python', 'cobramk1', 'asp', 'coriolis',
+  'anaconda', 'boa', 'boa-mk2', 'gecko', 'viper']) {
   parsedMeshes[m] = parseMesh(read(`models/oolite_${m}.dat`));
 }
 for (const s of ['faceplate', 'tris', 'dock']) {
   parsedMeshes[`oolite_coriolis_${s}`] = parseMesh(read(`models/oolite_coriolis_${s}.dat`));
+}
+
+// Every SHIP_DEFS registration resolves: the shipdata template exists, the
+// model file parses, and every material's diffuse texture is shipped on disk.
+const onDisk = new Set(readdirSync(join(root, 'web/assets/textures')));
+const checkTextures = (modelName, entry) => {
+  const parsed = parseMesh(read(`models/${modelName}.dat`));
+  for (const mat of parsed.materials) {
+    const png = resolveTextureName(mat, entry, modelName);
+    assert.ok(png && onDisk.has(png), `${modelName}/${mat} -> ${png} shipped`);
+  }
+};
+for (const [key, def] of Object.entries(SHIP_DEFS)) {
+  const entry = shipdata[def.shipKey];
+  assert.ok(entry, `shipdata has template ${def.shipKey} (${key})`);
+  checkTextures(def.model, entry);
+  for (const sub of def.subentities || []) checkTextures(sub, shipdata[sub] || entry);
 }
 
 const assets = { plists: { shipdata }, parsedMeshes };
@@ -96,6 +116,75 @@ assert.ok(
   'incoming fire drains shields/energy'
 );
 
+// ---- NPC roster: new ships, peaceful traders, break-off ------------------
+const distToPlayer = (e) => Math.hypot(
+  e.pos[0] - g.player.pos[0], e.pos[1] - g.player.pos[1], e.pos[2] - g.player.pos[2]
+);
+
+// traders rotate through every heavy hauler and never turn hostile
+g.entities = g.entities.filter((e) => e.type === 'station');
+const seenTraders = new Set();
+for (let i = 0; i < 8; i++) seenTraders.add(spawnTrader(g).shipKey);
+assert.deepStrictEqual([...seenTraders].sort(), ['anaconda', 'boa', 'boa-mk2', 'python'],
+  'trader rotation covers the heavy haulers');
+assert.ok(g.entities.filter((e) => e.role === 'trader').every((e) => !e.hostile),
+  'heavy traders spawn non-hostile');
+for (let i = 0; i < 120; i++) stepGame(g, noInput(), 1 / 60);
+const stillTrading = g.entities.filter((e) => e.role === 'trader');
+assert.ok(stillTrading.length > 0, 'traders survive the simulation');
+assert.ok(stillTrading.every((e) => !e.hostile), 'traders stay non-hostile while flying');
+
+// a newly added ship can be spawned and shot down
+const anaconda = g.entities.find((e) => e.shipKey === 'anaconda');
+assert.ok(anaconda, 'anaconda spawned');
+assert.strictEqual(anaconda.maxSpeed, 140, 'anaconda speed from real shipdata');
+g.entities = g.entities.filter((e) => e === anaconda || e.type === 'station');
+anaconda.pos = [g.player.pos[0], g.player.pos[1], g.player.pos[2] + 4000];
+anaconda.quat = [0, 0, 0, 1];
+const cr0 = g.player.credits;
+for (let i = 0; i < 900 && anaconda.alive; i++) stepGame(g, { fire: true }, 1 / 60);
+assert.strictEqual(anaconda.alive, false, 'laser destroys the anaconda');
+assert.strictEqual(g.kills, kills0 + 2, 'kill counted');
+assert.strictEqual(anaconda.bounty, 0, 'innocent trader carries no bounty');
+assert.strictEqual(g.player.credits, cr0, 'so killing it pays nothing');
+assert.ok(!g.entities.includes(anaconda), 'anaconda wreck removed');
+
+// combat ships rotate through the hostile roster, all with a bounty
+g.entities = g.entities.filter((e) => e.type === 'station');
+const seenPirates = new Set();
+const pirates = [];
+for (let i = 0; i < 6; i++) { const s = spawnPirate(g); pirates.push(s); seenPirates.add(s.shipKey); }
+assert.deepStrictEqual([...seenPirates].sort(), ['asp', 'cobramk1', 'gecko', 'krait', 'mamba', 'viper'],
+  'pirate rotation covers the combat ships');
+assert.ok(pirates.every((s) => s.hostile && s.role === 'pirate' && s.bounty > 0),
+  'combat ships spawn hostile with a real bounty');
+for (const s of pirates) {
+  assert.strictEqual(s.bounty, Math.round(shipdata[`oolite_template_${s.shipKey}`].max_energy / 5),
+    `${s.shipKey} bounty derived from the real shipdata max_energy`);
+}
+g.entities = g.entities.filter((e) => e.type === 'station');
+
+// badly damaged pirates break off instead of fighting to the death
+const wounded = spawnPirate(g);
+wounded.pos = [g.player.pos[0], g.player.pos[1], g.player.pos[2] + 2500];
+wounded.quat = [0, 0, 0, 1];
+wounded.energy = Math.max(1, wounded.maxEnergy * 0.02); // below every breakOffAt
+stepGame(g, noInput(), 1 / 60);
+assert.strictEqual(wounded.breakingOff, true, 'badly damaged pirate breaks off');
+assert.ok(!g.shots.some((s) => s.hostile), 'and stops shooting on the way out');
+const d0 = distToPlayer(wounded);
+for (let i = 0; i < 60; i++) stepGame(g, noInput(), 1 / 60);
+assert.ok(distToPlayer(wounded) > d0 + 100, 'and runs away');
+
+// an undamaged pirate keeps its nerve
+const healthy = spawnPirate(g);
+healthy.pos = [g.player.pos[0], g.player.pos[1], g.player.pos[2] + 2500];
+healthy.quat = [0, 1, 0, 0]; // turned to face the player, as an attacker would
+healthy.energy = healthy.maxEnergy;
+stepGame(g, noInput(), 1 / 60);
+assert.ok(!healthy.breakingOff, 'undamaged pirate stands and fights');
+assert.ok(g.shots.some((s) => s.hostile), 'and returns fire');
+
 // ---- docking + market -----------------------------------------------------
 g.entities = g.entities.filter((e) => e.type === 'station');
 g.player.pos = [0, 0, 300];
@@ -122,12 +211,19 @@ assert.ok(cargoUsed(g) <= g.player.maxCargo, 'cargo hold cap respected');
 // ---- jump -----------------------------------------------------------------
 launch(g);
 const sys0 = g.systemIndex;
-const fuel0 = g.player.fuel;
+const from = SYSTEMS[sys0];
+const fuel0 = g.player.fuel; // 70 = 7.0 ly full tank
+assert.strictEqual(from.name, 'LAVE', 'the classic starting system');
 assert.ok(jump(g), 'jump succeeds with fuel');
-assert.strictEqual(g.systemIndex, (sys0 + 1) % SYSTEMS.length);
-assert.strictEqual(g.player.fuel, fuel0 - 10);
+assert.notStrictEqual(g.systemIndex, sys0, 'arrived in another system');
+const arrived = SYSTEMS[g.systemIndex];
+const ly = distanceLy(from, arrived);
+assert.ok(ly <= 7, `target inside the 7 ly jump range (${ly} ly)`);
+assert.strictEqual(g.player.fuel, fuel0 - Math.round(ly * 10), 'fuel costs the distance');
+const stay = g.systemIndex;
 g.player.fuel = 0;
 assert.strictEqual(jump(g), false, 'no fuel, no jump');
+assert.strictEqual(g.systemIndex, stay, 'stays put when the jump fails');
 
 // ---- death ----------------------------------------------------------------
 g.entities = g.entities.filter((e) => e.type === 'station');

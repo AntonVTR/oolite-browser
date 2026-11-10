@@ -10,8 +10,9 @@
 export const ctrl = {
   pitch: 0, yaw: 0, roll: 0, throttle: 0, throttleSet: null,
   fire: false, injectors: false,
-  targetNext: false, dockRequest: false, gyroToggle: false, pause: false,
+  targetNext: false, dockRequest: false, pause: false, jump: false,
   gyroOn: false,
+  onGyroKey: null, // keyboard G → toggleGyro() installed by touch.js
   sources: { kb: {}, mouse: {}, touch: {}, gyro: {}, pad: {} },
 };
 
@@ -24,7 +25,7 @@ export function setupKeyboard(target = window) {
     keys.add(e.code);
     if (e.code === 'Tab') { ctrl.targetNext = true; e.preventDefault(); }
     if (e.code === 'Enter') ctrl.dockRequest = true;
-    if (e.code === 'KeyG') ctrl.gyroToggle = true;
+    if (e.code === 'KeyG' && ctrl.onGyroKey) ctrl.onGyroKey(); // keydown = iOS gesture
     if (e.code === 'Escape') ctrl.pause = true;
     if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'PageUp', 'PageDown'].includes(e.code)) {
       e.preventDefault();
@@ -36,17 +37,21 @@ export function setupKeyboard(target = window) {
   kb.poll = () => {
     const has = (c) => keys.has(c);
     let pitch = 0, yaw = 0, roll = 0, thr = 0;
-    if (has('KeyW') || has('ArrowUp')) pitch -= 1;
-    if (has('KeyS') || has('ArrowDown')) pitch += 1;
-    if (has('KeyA') || has('ArrowLeft')) roll -= 1;
-    if (has('KeyD') || has('ArrowRight')) roll += 1;
-    if (has('KeyQ') || has('Comma')) yaw += 1;
-    if (has('KeyE') || has('Period')) yaw -= 1;
-    if (has('PageUp') || has('Equal') || has('NumpadAdd')) thr += 1;
-    if (has('PageDown') || has('Minus') || has('NumpadSubtract')) thr -= 1;
+    if (has('ArrowUp')) pitch -= 1;
+    if (has('ArrowDown')) pitch += 1;
+    if (has('ArrowLeft')) yaw += 1;
+    if (has('ArrowRight')) yaw -= 1;
+    if (has('KeyQ')) yaw += 1;
+    if (has('KeyE')) yaw -= 1;
+    if (has('KeyA') || has('Comma')) roll -= 1;
+    if (has('KeyD') || has('Period')) roll += 1;
+    if (has('KeyW') || has('PageUp') || has('Equal') || has('NumpadAdd')) thr += 1;
+    if (has('KeyS') || has('PageDown') || has('Minus') || has('NumpadSubtract')) thr -= 1;
+    // F = full throttle, R = reverse (cut to zero) — absolute targets
+    const throttleSet = has('KeyF') ? 1 : has('KeyR') ? 0 : null;
     return {
-      pitch, yaw, roll, throttle: thr,
-      fire: has('Space') || has('KeyJ'),
+      pitch, yaw, roll, throttle: thr, throttleSet,
+      fire: has('Space'),
       injectors: has('ShiftLeft') || has('ShiftRight') || has('KeyI'),
     };
   };
@@ -86,23 +91,36 @@ export function setupMouse(glCanvas) {
   };
 }
 
+// Standard gamepad (Chrome "standard mapping"):
+//   left stick  = pitch / yaw        right stick = roll / throttle
+//   D-pad       = roll / throttle    A or RT = fire   X / LT / RB = injectors
+//   B or LB     = next target        Y = jump         Back = dock request
 export function setupGamepad() {
   const pad = ctrl.sources.pad;
+  let jumpWasDown = false;
   pad.poll = () => {
     const pads = navigator.getGamepads ? navigator.getGamepads() : [];
     const gp = pads && [...pads].find(Boolean);
-    if (!gp) return null;
+    if (!gp) { jumpWasDown = false; return null; }
     const ax = (i) => (typeof gp.axes[i] === 'number' ? gp.axes[i] : 0);
     const btn = (i) => !!(gp.buttons[i] && gp.buttons[i].pressed);
     const dz = (v) => (Math.abs(v) < 0.15 ? 0 : v);
+    const jumpDown = btn(3);
+    const jump = jumpDown && !jumpWasDown; // one jump per press
+    jumpWasDown = jumpDown;
+    let roll = dz(ax(2));
+    if (btn(14)) roll = -1; else if (btn(15)) roll = 1;
+    let throttle = dz(-ax(3));
+    if (btn(12)) throttle = 1; else if (btn(13)) throttle = -1;
     return {
       pitch: dz(-ax(1)),
       yaw: dz(-ax(0)),
-      roll: dz(ax(2)),
-      throttle: dz(-ax(3)),
+      roll, throttle,
       fire: btn(7) || btn(0),
-      injectors: btn(6) || btn(5),
+      injectors: btn(6) || btn(5) || btn(2),
       target: btn(4) || btn(1),
+      jump,
+      dock: btn(8),
     };
   };
 }
@@ -164,10 +182,13 @@ export function updateCtrl() {
   ctrl.roll = sum(kb.roll, t.roll, g.on ? g.roll : 0, pad && pad.roll);
   const kbThr = kb.throttle || ms.throttle || pad?.throttle || 0;
   ctrl.throttle = kbThr;
-  ctrl.throttleSet = t.throttleSet != null ? t.throttleSet : null;
+  // slider drags win while held; F/R (keyboard) otherwise set the target
+  ctrl.throttleSet = t.throttleSet != null ? t.throttleSet : (kb.throttleSet ?? null);
   ctrl.fire = !!(kb.fire || ms.fire || t.fire || (pad && pad.fire));
   ctrl.injectors = !!(kb.injectors || t.injectors || (pad && pad.injectors));
   if (pad && pad.target) ctrl.targetNext = true;
+  if (pad && pad.jump) ctrl.jump = true;
+  if (pad && pad.dock) ctrl.dockRequest = true;
   if (t.targetNext) ctrl.targetNext = true;
   if (t.dock) ctrl.dockRequest = true;
   return ctrl;

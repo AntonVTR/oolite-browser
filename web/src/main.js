@@ -303,6 +303,18 @@ function resize() {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   renderer.resize(w, h, dpr);
   hud.resize(w, h, dpr);
+
+  // Measure the HUD's corner gauge blocks (same maths as hud.js: hud.plist
+  // dials with y_origin=-1 reach 101 units up, legends/bars 279/278 units in)
+  // so the touch controls can be laid out clear of them: --stick-b /
+  // --buttons-b is the bottom offset that keeps a control out of that band.
+  const s = Math.min(w / 640, h / 480);
+  const bandB = 101 * s; // band height from the bottom edge
+  const colL = w / 2 - 279 * s;   // free width left of the band
+  const colR = w - (w / 2 + 278 * s); // free width right of it
+  const root = document.documentElement.style;
+  root.setProperty('--stick-b', `${colL >= 158 ? 8 : bandB + 8}px`);
+  root.setProperty('--buttons-b', `${colR >= 132 ? 8 : bandB + 8}px`);
 }
 
 function frame(now) {
@@ -317,10 +329,11 @@ function frame(now) {
     throttle: c.throttle, throttleSet: c.throttleSet,
     fire: c.fire, injectors: c.injectors,
     targetNext: c.targetNext, dockRequest: c.dockRequest,
-    jump: jumpRequested,
+    jump: jumpRequested || c.jump,
   }, dt);
   c.targetNext = false;
   c.dockRequest = false;
+  c.jump = false;
   jumpRequested = false;
   clearTouchEdges();
 

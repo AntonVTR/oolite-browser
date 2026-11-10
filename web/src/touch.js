@@ -37,25 +37,30 @@ function makeStick(node, knob, onChange) {
   node.addEventListener('pointermove', move);
   node.addEventListener('pointerup', end);
   node.addEventListener('pointercancel', end);
+  // release even if capture was lost and the finger lifted elsewhere
+  window.addEventListener('pointerup', end);
+  window.addEventListener('pointercancel', end);
 }
 
 function makeHoldButton(node, onDown, onUp) {
   let id = null;
-  const down = (e) => {
+  const release = (e) => {
+    if (id === null || (e && e.pointerId !== id)) return;
+    id = null;
+    onUp();
+  };
+  node.addEventListener('pointerdown', (e) => {
     id = e.pointerId;
     try { node.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
     onDown(true);
     e.preventDefault();
-  };
-  const up = (e) => {
-    if (id !== null && e && e.pointerId !== undefined && e.pointerId !== id) return;
-    id = null;
-    onUp();
-    if (e) e.preventDefault();
-  };
-  node.addEventListener('pointerdown', down);
-  node.addEventListener('pointerup', up);
-  node.addEventListener('pointercancel', up);
+  });
+  node.addEventListener('pointerup', (e) => { e.preventDefault(); release(e); });
+  node.addEventListener('pointercancel', release);
+  node.addEventListener('pointerleave', release); // finger slid off without capture
+  // safety net: a release outside the button must still unstick it
+  window.addEventListener('pointerup', release);
+  window.addEventListener('pointercancel', release);
 }
 
 function makeTapButton(node, onTap) {
@@ -89,9 +94,17 @@ export function setupTouchControls({ onGyroToggle }) {
       e.preventDefault();
     });
     slider.addEventListener('pointermove', (e) => { if (e.pointerId === active) setFromEvent(e); });
-    const stop = (e) => { if (e.pointerId === active) active = null; };
+    const stop = (e) => {
+      if (e.pointerId !== active) return;
+      active = null;
+      // value already applied; clear it so F/R and W/S can drive again
+      state.throttleSet = null;
+    };
     slider.addEventListener('pointerup', stop);
     slider.addEventListener('pointercancel', stop);
+    slider.addEventListener('pointerleave', stop);
+    window.addEventListener('pointerup', stop);
+    window.addEventListener('pointercancel', stop);
   }
 
   const fire = el('btnFire');
@@ -108,28 +121,29 @@ export function setupTouchControls({ onGyroToggle }) {
   if (dock) makeTapButton(dock, () => { state.dock = true; });
 
   const gyro = el('btnGyro');
-  if (gyro) {
-    makeTapButton(gyro, async () => {
-      if (ctrl.gyroOn) {
-        stopGyro();
-        ctrl.gyroOn = false;
-        gyro.classList.remove('on');
-        gyro.textContent = 'GYRO';
-        return;
-      }
+  // One path for both gestures: the GYRO button's pointerdown and the keyboard
+  // G keydown are each a real user gesture, which is what iOS requires to
+  // grant DeviceOrientation permission — no second tap needed either way.
+  const toggleGyro = async () => {
+    if (ctrl.gyroOn) {
+      stopGyro();
+      ctrl.gyroOn = false;
+      if (gyro) { gyro.classList.remove('on'); gyro.textContent = 'GYRO'; }
+    } else {
       const ok = await enableGyro();
       if (ok) {
         startGyro();
         ctrl.gyroOn = true;
-        gyro.classList.add('on');
-        gyro.textContent = 'GYRO ON';
-      } else {
+        if (gyro) { gyro.classList.add('on'); gyro.textContent = 'GYRO ON'; }
+      } else if (gyro) {
         gyro.textContent = 'NO GYRO';
         setTimeout(() => { gyro.textContent = 'GYRO'; }, 1500);
       }
-      if (onGyroToggle) onGyroToggle(ctrl.gyroOn);
-    });
-  }
+    }
+    if (onGyroToggle) onGyroToggle(ctrl.gyroOn);
+  };
+  if (gyro) makeTapButton(gyro, toggleGyro);
+  ctrl.onGyroKey = toggleGyro;
   return state;
 }
 

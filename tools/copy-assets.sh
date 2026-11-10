@@ -17,6 +17,11 @@ MODELS=(
   oolite_python
   oolite_cobramk1
   oolite_asp
+  oolite_anaconda
+  oolite_boa
+  oolite_boa-mk2
+  oolite_gecko
+  oolite_viper
   oolite_coriolis
   oolite_coriolis_dock
   oolite_coriolis_faceplate
@@ -27,6 +32,8 @@ for m in "${MODELS[@]}"; do
 done
 
 # --- textures (downscale to max 1024px) -------------------------------------
+# Only diffuse maps: the port's resolveTextureName() reads diffuse_map only,
+# so _normal / _specular maps are never fetched and never copied.
 TEXTURES=(
   oolite_cobra3_diffuse.png
   oolite_cobra3_subents.png
@@ -38,6 +45,15 @@ TEXTURES=(
   oolite_cobramk1_diffuse.png
   oolite_asp_diffuse.png
   oolite_asp_subents.png
+  oolite_anaconda_diffuse.png
+  oolite_anaconda_subents.png
+  oolite_boa_diffuse.png
+  oolite_boa_subents.png
+  oolite_boa-mk2_diffuse.png
+  oolite_boa-mk2_subents.png
+  oolite_gecko_diffuse.png
+  oolite_gecko_subents.png
+  oolite_viper_diffuse.png
   oolite_coriolis_diffuse.png
   oolite_coriolis_dock_diffuse.png
   oolite_coriolis_faceplate_diffuse.png

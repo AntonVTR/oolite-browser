@@ -12,6 +12,13 @@ export const SHIP_DEFS = {
   python: { shipKey: 'oolite_template_python', model: 'oolite_python' },
   cobramk1: { shipKey: 'oolite_template_cobramk1', model: 'oolite_cobramk1' },
   asp: { shipKey: 'oolite_template_asp', model: 'oolite_asp' },
+  // heavy haulers — spawned as peaceful NPC traders
+  anaconda: { shipKey: 'oolite_template_anaconda', model: 'oolite_anaconda' },
+  boa: { shipKey: 'oolite_template_boa', model: 'oolite_boa' },
+  'boa-mk2': { shipKey: 'oolite_template_boa-mk2', model: 'oolite_boa-mk2' },
+  // fighters — spawned as hostile pirates
+  gecko: { shipKey: 'oolite_template_gecko', model: 'oolite_gecko' },
+  viper: { shipKey: 'oolite_template_viper', model: 'oolite_viper' },
   coriolis: {
     shipKey: 'oolite_template_coriolis-station',
     model: 'oolite_coriolis',
