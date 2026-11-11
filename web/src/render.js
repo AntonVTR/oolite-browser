@@ -35,6 +35,9 @@ void main() {
   if (!gl_FrontFacing) n = -n;
   vec4 base = uTint;
   if (uUseTex > 0.5) base *= texture2D(uTex, vUV);
+  // Oolite's diffuse atlases ship a near-zero alpha channel (it is not a
+  // mask), so blending on it would draw every ship almost fully transparent.
+  base.a = uTint.a;
   float d = max(dot(n, uSunDir), 0.0);
   vec3 col = base.rgb * (uAmbient + uSunCol * d) + base.rgb * uEmissive;
   gl_FragColor = vec4(col, base.a);

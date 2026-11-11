@@ -12,6 +12,7 @@ const { SHIP_DEFS, resolveTextureName } = await import(join(root, 'web/src/asset
 const { createGame, stepGame, launch, marketFor, buyGood, sellGood, cargoUsed, jump, SYSTEMS,
   spawnPirate, spawnTrader } = await import(join(root, 'web/src/game.js'));
 const { distanceLy } = await import(join(root, 'web/src/galaxy.js'));
+const { quatRotate } = await import(join(root, 'web/src/math.js'));
 
 const read = (p) => readFileSync(join(root, 'web/assets', p), 'utf8');
 const shipdata = parsePlist(read('config/shipdata.plist'));
@@ -58,6 +59,19 @@ assert.strictEqual(g.hudVisible, true);
 // keep the world quiet and deterministic for the rest of the checks
 g.entities = g.entities.filter((e) => e.type === 'station');
 g.spawnTimer = 1e9;
+
+// Launch framing: the station has to be ahead of the nose, and a fresh
+// contact has to arrive inside the view cone — the old 360°/3–7 km spawn
+// put every new ship off-screen, so the sky looked empty.
+const nose = quatRotate(g.player.quat, [0, 0, 1]);
+const rel = (e) => [e.pos[0] - g.player.pos[0], e.pos[1] - g.player.pos[1], e.pos[2] - g.player.pos[2]];
+const ahead = (e) => { const r = rel(e); return nose[0] * r[0] + nose[1] * r[1] + nose[2] * r[2]; };
+assert.ok(ahead(g.station) > 0, 'station ahead of the nose at launch');
+const fresh = spawnPirate(g);
+const freshDist = Math.hypot(rel(fresh)[0], rel(fresh)[1], rel(fresh)[2]);
+assert.ok(ahead(fresh) > 0 && freshDist >= 700 && freshDist <= 2000,
+  `pirate spawns in view (${freshDist.toFixed(0)} m ahead)`);
+g.entities = g.entities.filter((e) => e.type === 'station');
 
 const start = g.player.pos.slice();
 for (let i = 0; i < 60; i++) stepGame(g, noInput(), 1 / 60);

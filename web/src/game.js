@@ -100,22 +100,31 @@ function spawnStation(g) {
   return st;
 }
 
+// Contacts spawn inside the view cone: a ship 3 km off the port beam is as
+// good as invisible, so keep new arrivals ahead of the nose and close enough
+// to read as a ship rather than a pixel.
+function spawnAhead(g, rangeMin, rangeMax) {
+  const yaw = (Math.random() - 0.5) * 0.7;   // ±20°, inside the horizontal FOV
+  const pitch = (Math.random() - 0.5) * 0.5;
+  const nose = quatRotate(g.player.quat, [0, 0, 1]);
+  const right = quatRotate(g.player.quat, [1, 0, 0]);
+  const up = quatRotate(g.player.quat, [0, 1, 0]);
+  const dir = norm(add(
+    add(scale(nose, Math.cos(yaw)), scale(right, Math.sin(yaw))),
+    scale(up, pitch),
+  ));
+  const range = rangeMin + Math.random() * (rangeMax - rangeMin);
+  return add(g.player.pos, scale(dir, range));
+}
+
 export function spawnPirate(g) {
   // Round-robin so every combat ship in the roster actually shows up.
   const key = PIRATE_KEYS[g.pirateSeq++ % PIRATE_KEYS.length];
   const d = def(g, key);
   // Most shipdata templates carry no bounty; scale those by hull energy.
   const bounty = d.bounty || Math.round((d.max_energy || 256) / 5);
-  const angle = Math.random() * Math.PI * 2;
-  const elev = (Math.random() - 0.5) * 0.6;
-  const range = 2500 + Math.random() * 4000;
-  const p = g.player.pos;
-  const pos = [
-    p[0] + Math.cos(angle) * range,
-    p[1] + Math.sin(elev) * range,
-    p[2] + Math.sin(angle) * range,
-  ];
-  const s = makeShip(g, key, pos, [0, 0, 0, 1], { hostile: true, bounty, role: 'pirate' });
+  const s = makeShip(g, key, spawnAhead(g, 700, 2000), [0, 0, 0, 1],
+    { hostile: true, bounty, role: 'pirate' });
   s.think = Math.random();
   g.entities.push(s);
   return s;
@@ -123,11 +132,8 @@ export function spawnPirate(g) {
 
 export function spawnTrader(g) {
   const key = TRADER_KEYS[g.traderSeq++ % TRADER_KEYS.length];
-  const angle = Math.random() * Math.PI * 2;
-  const range = 3000 + Math.random() * 5000;
-  const p = g.player.pos;
-  const pos = [p[0] + Math.cos(angle) * range, p[1] + (Math.random() - 0.5) * 1500, p[2] + Math.sin(angle) * range];
-  const s = makeShip(g, key, pos, [0, 0, 0, 1], { hostile: false, role: 'trader' });
+  const s = makeShip(g, key, spawnAhead(g, 1200, 3200), [0, 0, 0, 1],
+    { hostile: false, role: 'trader' });
   g.entities.push(s);
   return s;
 }
@@ -261,8 +267,10 @@ export function dock(g) {
 
 export function launch(g) {
   const st = g.station;
-  // Leave the dock face (+Z) pointing away from the station.
-  g.player.pos = [st.pos[0], st.pos[1], st.pos[2] + 900];
+  // Start off to one side so the station drifts past ahead of the canopy.
+  // Straight-out (+Z) put it directly behind the nose, where it can never
+  // be seen; the lateral offset also means the flight path clears it by ~500 m.
+  g.player.pos = [st.pos[0] + 1200, st.pos[1], st.pos[2] - 2966];
   g.player.quat = [0, 0, 0, 1];
   g.player.speed = 150;
   g.player.throttle = 0.45;
@@ -299,7 +307,8 @@ export function jump(g) {
   g.explosions = [];
   g.target = null;
   spawnStation(g);
-  g.player.pos = [g.station.pos[0], g.station.pos[1], g.station.pos[2] + 1400];
+  // Same framing as launch: station ahead of the nose, not behind it.
+  g.player.pos = [g.station.pos[0] + 1200, g.station.pos[1], g.station.pos[2] - 2966];
   g.player.speed = 150;
   spawnPirate(g);
   spawnTrader(g);
