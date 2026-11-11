@@ -5,7 +5,7 @@ import { Renderer } from './render.js';
 import { Hud } from './hud.js';
 import { GameAudio } from './audio.js';
 import { setupKeyboard, setupMouse, setupGamepad, updateCtrl } from './controls.js';
-import { setupTouchControls, clearTouchEdges } from './touch.js';
+import { setupTouchControls, clearTouchEdges, syncThrottleKnob } from './touch.js';
 import { loadAssets, SHIP_DEFS, resolveTextureName } from './assets.js';
 import {
   createGame, stepGame, launch, marketFor, buyGood, sellGood, cargoUsed,
@@ -336,6 +336,7 @@ function frame(now) {
   c.jump = false;
   jumpRequested = false;
   clearTouchEdges();
+  syncThrottleKnob(game.player.throttle);
 
   syncPhase();
   playEvents();

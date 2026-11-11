@@ -38,13 +38,14 @@ gyro, keyboard/mouse and gamepad.
 | --- | --- | --- | --- |
 | Pitch / yaw | `↑ ↓ ← →` or mouse | left stick | left stick |
 | Roll | `,` / `.` or `A` `D` | ⟲ ⟳ buttons | right stick X / D-pad ← → |
-| Throttle | `W` / `S`, `F` full, `R` reverse | slider | right stick Y / D-pad ↑ ↓ |
+| Throttle | `W` / `S`, `F` full, `R` stop | slider (top-right) | right stick Y / D-pad ↑ ↓ |
 | Injectors (boost) | `I` | BOOST | LT / RB / X |
 | Fire | `Space` / left mouse | FIRE | RT / A |
 | Next target | `Tab` | TGT | LB / B |
 | Dock | `Enter` | DOCK | Back |
 | Jump | `J` | JUMP | Y |
 | Gyro steering | `G` | GYRO | — |
+| Fullscreen | `F11` (browser) | FULL | — |
 
 Docking: fly within 400 m of the station at under 120 m/s (or press DOCK under
 1500 m). Refuel and trade from the station screen.
@@ -55,6 +56,7 @@ Docking: fly within 400 m of the station at under 120 m/s (or press DOCK under
 node tests/test-parsers.mjs   # plist + .dat mesh parsers
 node tests/test-game.mjs      # headless gameplay: launch, combat, market, jump, death
 node tests/test-view.mjs      # camera / coordinate-frame convention
+node tests/test-touch.mjs     # double-tap zoom guard
 python3 -m http.server 8099 --directory web   # local server
 # headless smoke test (console errors + screenshots):
 google-chrome --headless=new --virtual-time-budget=6000 --screenshot=/tmp/shot.png \

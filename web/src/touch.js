@@ -6,6 +6,14 @@ import { ctrl, enableGyro, startGyro, stopGyro } from './controls.js';
 
 function el(id) { return document.getElementById(id); }
 
+// The slider knob: track height minus knob height (30 px, see style.css), so
+// it stays inside the slider at 0 % as well as 100 %.
+let throttleKnob = null;
+function placeKnob(node, v) {
+  const t = 1 - Math.max(0, Math.min(1, v));
+  node.style.top = `calc(${t.toFixed(3)} * (100% - 30px))`;
+}
+
 function makeStick(node, knob, onChange) {
   let activeId = null;
   const rectOf = () => node.getBoundingClientRect();
@@ -72,6 +80,17 @@ export function setupTouchControls({ onGyroToggle }) {
                   throttleSet: null, targetNext: false, dock: false };
   ctrl.touchState = state;
 
+  // iOS Safari ignores user-scalable=no, so a fast second tap in the same spot
+  // still zooms the page. Swallow it — never on a control, whose second click
+  // (market BUY, TAP TO START) has to get through.
+  let lastTap = { t: 0, x: 0, y: 0 };
+  document.addEventListener('touchend', (e) => {
+    const now = Date.now();
+    const t = e.changedTouches[0];
+    if (blocksDoubleTap(now, lastTap, t.clientX, t.clientY, e.target)) e.preventDefault();
+    lastTap = { t: now, x: t.clientX, y: t.clientY };
+  }, { passive: false });
+
   const stickL = el('stickL');
   const knobL = el('stickL-knob');
   if (stickL) makeStick(stickL, knobL, (x, y) => { state.yaw = -x; state.pitch = y; });
@@ -79,13 +98,14 @@ export function setupTouchControls({ onGyroToggle }) {
   // throttle slider: vertical drag sets absolute throttle target
   const slider = el('throttle');
   const knob = el('throttle-knob');
+  throttleKnob = knob;
   if (slider) {
     let active = null;
     const setFromEvent = (e) => {
       const r = slider.getBoundingClientRect();
       const v = 1 - (e.clientY - r.top) / r.height;
       state.throttleSet = Math.max(0, Math.min(1, v));
-      knob.style.top = `${(1 - state.throttleSet) * 100}%`;
+      placeKnob(knob, state.throttleSet);
     };
     slider.addEventListener('pointerdown', (e) => {
       active = e.pointerId;
@@ -144,6 +164,25 @@ export function setupTouchControls({ onGyroToggle }) {
   };
   if (gyro) makeTapButton(gyro, toggleGyro);
   ctrl.onGyroKey = toggleGyro;
+
+  // Fullscreen toggle. iPhone Safari has no element-fullscreen API — hide the
+  // button there rather than leave a control that does nothing.
+  const full = el('btnFull');
+  if (full) {
+    const root = document.documentElement;
+    const req = root.requestFullscreen || root.webkitRequestFullscreen;
+    if (req) {
+      makeTapButton(full, () => {
+        const fs = document.fullscreenElement || document.webkitFullscreenElement;
+        const p = fs
+          ? (document.exitFullscreen || document.webkitExitFullscreen)?.call(document)
+          : req.call(root);
+        if (p && p.catch) p.catch(() => { /* refused: no gesture or no support */ });
+      });
+    } else {
+      full.classList.add('hidden');
+    }
+  }
   return state;
 }
 
@@ -151,4 +190,18 @@ export function setupTouchControls({ onGyroToggle }) {
 export function clearTouchEdges() {
   const s = ctrl.touchState;
   if (s) { s.targetNext = false; s.dock = false; }
+}
+
+// Keep the slider knob on the real throttle: W/S, F/R and the gamepad change
+// it without the slider being touched (it starts at 45 %).
+export function syncThrottleKnob(v) {
+  if (throttleKnob) placeKnob(throttleKnob, v);
+}
+
+// A would-be double-tap zoom: the second touchend within 300 ms and 30 px of
+// the last one — but never on a control, whose second click must survive.
+export function blocksDoubleTap(now, last, x, y, target) {
+  return now - last.t <= 300 &&
+    Math.abs(x - last.x) < 30 && Math.abs(y - last.y) < 30 &&
+    !target.closest?.('button, a, input');
 }

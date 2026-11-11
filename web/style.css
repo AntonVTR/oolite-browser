@@ -7,6 +7,10 @@ html, body {
   color: #3f6;
   font-family: "Courier New", monospace;
   overscroll-behavior: none;
+  /* iOS Safari ignores user-scalable=no: `manipulation` kills double-tap zoom,
+     while #gl/#touch/.overlay's `none` and #docked's `pan-y` still win by
+     intersection, so scrolling and the game surfaces stay as they are. */
+  touch-action: manipulation;
   user-select: none;
   -webkit-user-select: none;
   -webkit-touch-callout: none;
