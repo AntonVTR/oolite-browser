@@ -38,7 +38,23 @@ const PIRATE_KEYS = ['mamba', 'krait', 'cobramk1', 'asp', 'gecko', 'viper'];
 const TRADER_KEYS = ['python', 'anaconda', 'boa', 'boa-mk2'];
 
 function shipData(g, key) { return g.shipdata[key]; }
-function def(g, key) { return g.shipdata[`oolite_template_${key}`] || {}; }
+// Ship stats live in templates. Player hulls are thin layers over the real
+// ship (oolite_template_X-player -> like_ship oolite_template_X), so follow the
+// chain and merge child-over-parent the way Oolite's shipdata loader does.
+function def(g, key) {
+  const chain = [];
+  const seen = new Set();
+  let d = g.shipdata[`oolite_template_${key}`] || g.shipdata[key];
+  while (d && chain.length < 5 && !seen.has(d)) {
+    seen.add(d);
+    chain.push(d);
+    d = d.like_ship ? g.shipdata[d.like_ship] : null;
+  }
+  const out = {};
+  for (let i = chain.length - 1; i >= 0; i--) Object.assign(out, chain[i]);
+  delete out.like_ship;
+  return out;
+}
 
 function pseudoRandom(seed) {
   let x = Math.sin(seed * 12.9898) * 43758.5453;
@@ -52,7 +68,9 @@ export function pushMessage(g, text, color = YELLOW, life = 5) {
 }
 
 function radiusOf(g, key) {
-  const m = g.parsedMeshes[key];
+  // player hulls are keyed `X-player` but share the `X` mesh; hulls the port
+  // does not ship a model for (adder, moray, fer-de-lance) fall back to 60 m
+  const m = g.parsedMeshes[key] || g.parsedMeshes[key.replace(/-player$/, '')];
   return m && m.bbox ? m.bbox.radius : 60;
 }
 
@@ -171,6 +189,11 @@ export function createGame(assets) {
 
     shipdata: assets.plists.shipdata,
     parsedMeshes: assets.parsedMeshes,
+    shipyard: assets.plists.shipyard,
+    // what the station still has for sale: every yard hull with shipdata stats
+    yardStock: Object.keys(assets.plists.shipyard).filter(
+      (k) => assets.plists.shipdata[`oolite_template_${k}`],
+    ),
 
     player: null,
     station: null,
@@ -207,6 +230,7 @@ export function createGame(assets) {
     weaponTemp: 0,
     credits: 100,
     cargo: {},
+    shipKey: 'cobra3-player', // yard key of the starting hull, for trade-in
     alive: true,
   };
 
@@ -254,6 +278,74 @@ export function sellGood(g, key, qty = 1) {
   g.player.credits += n * row.price;
   g.events.push({ type: 'sell' });
   pushMessage(g, `SOLD ${n} ${row.name.toUpperCase()} FOR ${(n * row.price).toFixed(1)} CR`, GREEN);
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// Shipyard. Prices are the real shipyard.plist credits values; Oolite's buy
+// path multiplies by 10 only because its credits field is held in tenths, so
+// the plist number is what is charged and displayed here.
+// shortcut: stock is the full yard list minus bought hulls — Oolite instead
+// rolls chance/techlevel/time per station.
+
+export function shipyardFor(g) {
+  return g.yardStock
+    .map((key) => {
+      const d = def(g, key);
+      return {
+        key,
+        name: d.name || key,
+        price: g.shipyard[key].price,
+        cargo: d.max_cargo || 0,
+        speed: d.max_flight_speed || 0,
+      };
+    })
+    .sort((a, b) => a.price - b.price);
+}
+
+export function shipName(g, key) { return def(g, key).name || key; }
+
+// Trade-in for the current hull: floor((price * 75 * factor + 5000) / 10000)
+// credits (PlayerEntityContracts.m tradeInValue, minus its ×10 tenths step).
+// shortcut: factor is Oolite's fresh-commander 95; the source raises it to 100
+// after a purchase and with hull repair, and rounds through cunningFee — the
+// port models neither hull condition nor that fee.
+export function tradeInValue(g) {
+  const y = g.shipyard[g.player.shipKey];
+  const price = y ? y.price : 0;
+  return Math.floor((price * 75 * 95 + 5000) / 10000);
+}
+
+export function buyShip(g, key) {
+  const y = g.shipyard[key];
+  if (!y || !g.yardStock.includes(key)) return false;
+  const tradeIn = tradeInValue(g);
+  // Affordability is checked before the manifest is sold, as in the source.
+  if (g.player.credits + tradeIn < y.price) {
+    pushMessage(g, 'INSUFFICIENT CREDITS', RED);
+    return false;
+  }
+  // The old hull's cargo is sold off; the new ship starts empty with a full
+  // tank (source: newShipCommonSetup zeroes the manifest and refuels).
+  for (const k of Object.keys(g.player.cargo)) sellGood(g, k, g.player.cargo[k]);
+  const p = g.player;
+  p.credits += tradeIn - y.price;
+  const d = def(g, key);
+  p.shipKey = key;
+  p.maxSpeed = d.max_flight_speed || 300;
+  p.thrust = d.thrust || 30;
+  p.pitchRate = d.max_flight_pitch || 1;
+  p.rollRate = d.max_flight_roll || 2;
+  p.yawRate = (d.max_flight_pitch || 1) / 4;
+  p.maxEnergy = d.max_energy || 256;
+  p.energy = p.maxEnergy;
+  p.maxCargo = d.max_cargo || 20;
+  p.missiles = d.max_missiles || 0;
+  p.radius = radiusOf(g, key);
+  p.fuel = d.fuel || 70;
+  g.yardStock = g.yardStock.filter((k) => k !== key);
+  pushMessage(g, `${shipName(g, key).toUpperCase()} BOUGHT — TRADE-IN ${tradeIn} CR`, GREEN, 6);
+  g.events.push({ type: 'buy' });
   return true;
 }
 

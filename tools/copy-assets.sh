@@ -67,7 +67,7 @@ for t in "${TEXTURES[@]}"; do
 done
 
 # --- config -----------------------------------------------------------------
-CONFIG=(hud.plist crosshairs.plist shipdata.plist planetinfo.plist equipment.plist)
+CONFIG=(hud.plist crosshairs.plist shipdata.plist planetinfo.plist equipment.plist shipyard.plist)
 for c in "${CONFIG[@]}"; do
   cp "$RES/Config/$c" "$OUT/config/$c"
 done

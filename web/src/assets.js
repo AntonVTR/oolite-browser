@@ -70,7 +70,7 @@ export async function loadAssets(onProgress = () => {}) {
   const tick = (label) => { done++; onProgress(done, total, label); };
 
   // config plists
-  const plistNames = ['shipdata', 'hud', 'crosshairs', 'planetinfo', 'equipment'];
+  const plistNames = ['shipdata', 'hud', 'crosshairs', 'planetinfo', 'equipment', 'shipyard'];
   total += plistNames.length;
   for (const name of plistNames) {
     A.plists[name] = parsePlist(await fetchText(`assets/config/${name}.plist`));

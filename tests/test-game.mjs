@@ -10,12 +10,13 @@ const { parsePlist } = await import(join(root, 'web/src/plist.js'));
 const { parseMesh } = await import(join(root, 'web/src/mesh.js'));
 const { SHIP_DEFS, resolveTextureName } = await import(join(root, 'web/src/assets.js'));
 const { createGame, stepGame, launch, marketFor, buyGood, sellGood, cargoUsed, jump, SYSTEMS,
-  spawnPirate, spawnTrader } = await import(join(root, 'web/src/game.js'));
+  spawnPirate, spawnTrader, shipyardFor, tradeInValue, buyShip } = await import(join(root, 'web/src/game.js'));
 const { distanceLy } = await import(join(root, 'web/src/galaxy.js'));
 const { quatRotate } = await import(join(root, 'web/src/math.js'));
 
 const read = (p) => readFileSync(join(root, 'web/assets', p), 'utf8');
 const shipdata = parsePlist(read('config/shipdata.plist'));
+const shipyard = parsePlist(read('config/shipyard.plist'));
 const parsedMeshes = {};
 for (const m of ['cobra3', 'mamba', 'krait', 'python', 'cobramk1', 'asp', 'coriolis',
   'anaconda', 'boa', 'boa-mk2', 'gecko', 'viper']) {
@@ -42,7 +43,7 @@ for (const [key, def] of Object.entries(SHIP_DEFS)) {
   for (const sub of def.subentities || []) checkTextures(sub, shipdata[sub] || entry);
 }
 
-const assets = { plists: { shipdata }, parsedMeshes };
+const assets = { plists: { shipyard, shipdata }, parsedMeshes };
 const noInput = () => ({});
 
 const g = createGame(assets);
@@ -221,6 +222,49 @@ assert.ok(Math.abs(g.player.credits - credits0) < 1e-9, 'round trip is lossless 
 g.player.credits = 100000;
 for (let i = 0; i < 30; i++) buyGood(g, 'machinery', 5);
 assert.ok(cargoUsed(g) <= g.player.maxCargo, 'cargo hold cap respected');
+
+// ---- shipyard ---------------------------------------------------------------
+const yard0 = shipyardFor(g);
+assert.strictEqual(yard0.length, 11, 'eleven player ships for sale');
+assert.ok(yard0.every((r, i) => i === 0 || yard0[i - 1].price <= r.price),
+  'listed cheapest first');
+assert.strictEqual(yard0[0].key, 'adder-player', 'cheapest hull is the adder');
+assert.strictEqual(yard0[0].price, 65000, 'real shipyard.plist price, not scaled');
+assert.strictEqual(g.player.shipKey, 'cobra3-player');
+
+// trade-in on the starting hull: floor((150000 * 75 * 95 + 5000) / 10000)
+const ti0 = tradeInValue(g);
+assert.strictEqual(ti0, 106875, 'trade-in is ~71% of hull price');
+
+// affordability is checked before the manifest is sold
+const heldRefused = cargoUsed(g);
+g.player.credits = 0;
+assert.strictEqual(buyShip(g, 'python-player'), false, 'python (200 000) out of reach');
+assert.strictEqual(g.player.shipKey, 'cobra3-player', 'refused buy keeps the hull');
+assert.strictEqual(g.player.credits, 0, 'refused buy charges nothing');
+assert.strictEqual(cargoUsed(g), heldRefused, 'refused buy leaves the manifest alone');
+
+// trade down: the cobra trade-in covers a cheaper hull and pays out the difference
+g.player.credits = 5000;
+const machPrice = marketFor(g).find((r) => r.key === 'machinery').price;
+const held0 = cargoUsed(g);
+assert.ok(buyShip(g, 'adder-player'), 'adder costs less than the trade-in');
+assert.deepStrictEqual(g.player.cargo, {}, 'manifest sold off with the old hull');
+assert.strictEqual(g.player.credits, 5000 + held0 * machPrice + (ti0 - 65000),
+  'cash + cargo sale + trade-in - price');
+assert.strictEqual(g.player.shipKey, 'adder-player');
+assert.strictEqual(g.player.maxCargo, 2, 'adder-player template layer overrides cargo');
+assert.strictEqual(g.player.maxSpeed, 240, 'adder stats resolved through like_ship');
+assert.strictEqual(g.player.fuel, 70, 'new hull ships with a full tank');
+assert.strictEqual(shipyardFor(g).length, 10, 'bought hull leaves the stock');
+assert.strictEqual(tradeInValue(g), 46313, 'trade-in follows the new hull');
+
+// the python player hull shares the python mesh for its collision radius
+g.player.credits = 300000;
+assert.ok(buyShip(g, 'python-player'), 'python affordable with cash');
+assert.strictEqual(g.player.radius, parsedMeshes.python.bbox.radius,
+  'radius resolved through the -player suffix');
+assert.strictEqual(g.player.shipKey, 'python-player');
 
 // ---- jump -----------------------------------------------------------------
 launch(g);

@@ -9,6 +9,7 @@ import { setupTouchControls, clearTouchEdges, syncThrottleKnob } from './touch.j
 import { loadAssets, SHIP_DEFS, resolveTextureName } from './assets.js';
 import {
   createGame, stepGame, launch, marketFor, buyGood, sellGood, cargoUsed,
+  shipyardFor, tradeInValue, buyShip, shipName,
   SYSTEMS,
 } from './game.js';
 import { mat4, mat4FromQuatPosScale, quatRotate, add, scale as vscale } from './math.js';
@@ -244,14 +245,52 @@ function buildMarketScreen() {
           <button data-act="sell" data-key="${r.key}" ${held ? '' : 'disabled'}>SELL</button>
         </td></tr>`;
     }).join('');
+
+  buildShipyardScreen();
 }
 
+function buildShipyardScreen() {
+  const p = game.player;
+  const tradeIn = tradeInValue(game);
+  el('yard-note').textContent =
+    `Trade-in for your ${shipName(game, p.shipKey)}: ${tradeIn} CR`;
+  const rows = shipyardFor(game);
+  el('yard').innerHTML =
+    '<tr><th>Ship</th><th>Price</th><th>Cargo</th><th>Speed</th><th></th></tr>' +
+    (rows.length ? rows.map((r) => {
+      const can = p.credits + tradeIn >= r.price;
+      return `<tr>
+        <td>${r.name}</td>
+        <td>${r.price}</td>
+        <td>${r.cargo} t</td>
+        <td>${r.speed}</td>
+        <td><button data-key="${r.key}" ${can ? '' : 'disabled'}>BUY</button></td>
+      </tr>`;
+    }).join('') : '<tr><td colspan="5">NO SHIPS FOR SALE</td></tr>');
+}
+
+let showDockTab = () => {};
 function wireDockScreen() {
   el('market').addEventListener('click', (e) => {
     const btn = e.target.closest('button');
     if (!btn) return;
     if (btn.dataset.act === 'buy') buyGood(game, btn.dataset.key, 1);
     else sellGood(game, btn.dataset.key, 1);
+    playEvents();
+    buildMarketScreen();
+  });
+  showDockTab = (name) => {
+    el('sec-market').classList.toggle('hidden', name !== 'market');
+    el('sec-shipyard').classList.toggle('hidden', name !== 'shipyard');
+    el('tabMarket').classList.toggle('active', name === 'market');
+    el('tabShipyard').classList.toggle('active', name === 'shipyard');
+  };
+  el('tabMarket').addEventListener('click', () => showDockTab('market'));
+  el('tabShipyard').addEventListener('click', () => showDockTab('shipyard'));
+  el('yard').addEventListener('click', (e) => {
+    const btn = e.target.closest('button');
+    if (!btn || btn.disabled) return;
+    buyShip(game, btn.dataset.key);
     playEvents();
     buildMarketScreen();
   });
@@ -428,6 +467,8 @@ async function main() {
     if (query.has('dock')) {
       game.player.pos = [0, 0, 300];
       game.player.speed = 20;
+      // ?yard opens the shipyard tab of the station screen
+      if (query.has('yard')) showDockTab('shipyard');
     }
   }
 

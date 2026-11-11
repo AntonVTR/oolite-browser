@@ -31,8 +31,17 @@
   <div class="panel">
     <h1 id="dock-title">STATUS</h1>
     <div id="dock-status"></div>
-    <h2>MARKET</h2>
-    <table id="market"></table>
+    <div class="tabs">
+      <button id="tabMarket" class="tab active">MARKET</button>
+      <button id="tabShipyard" class="tab">SHIPYARD</button>
+    </div>
+    <div id="sec-market">
+      <table id="market" class="market"></table>
+    </div>
+    <div id="sec-shipyard" class="hidden">
+      <table id="yard" class="market"></table>
+      <div id="yard-note"></div>
+    </div>
     <div class="row">
       <button id="btnLaunch" class="big">LAUNCH</button>
       <button id="btnRefuel" class="big">REFUEL 1.0 ly — 2 CR</button>

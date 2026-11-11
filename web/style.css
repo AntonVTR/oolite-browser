@@ -84,11 +84,20 @@ button.big { font-size: clamp(17px, 4.4vw, 24px); padding: 14px 30px; letter-spa
 .panel h1 { font-size: clamp(20px, 5vw, 30px); letter-spacing: 0.14em; color: #4f8; margin-bottom: 10px; }
 .panel h2 { font-size: clamp(15px, 4vw, 20px); letter-spacing: 0.12em; color: #4f8; margin: 16px 0 8px; }
 #dock-status { font-size: clamp(13px, 3.6vw, 16px); line-height: 1.7; opacity: 0.9; white-space: pre-line; }
-#market { width: 100%; border-collapse: collapse; font-size: clamp(12px, 3.4vw, 15px); }
-#market th, #market td { padding: 7px 6px; border-bottom: 1px solid rgba(0,255,100,0.18); text-align: right; }
-#market th:first-child, #market td:first-child { text-align: left; }
-#market th { color: #2f6; font-weight: normal; }
-#market button { padding: 5px 12px; font-size: 13px; margin-left: 4px; }
+.tabs { display: flex; gap: 8px; margin: 16px 0 8px; }
+.tab {
+  flex: 1; padding: 9px 8px; font-size: clamp(13px, 3.8vw, 16px);
+  letter-spacing: 0.12em; font-family: inherit; color: #4f8; cursor: pointer;
+  background: rgba(0,40,20,0.6); border: 1px solid rgba(0,255,100,0.3); border-radius: 6px;
+}
+.tab.active { background: rgba(0,90,45,0.8); color: #cfc; border-color: #4f8; }
+button:disabled { opacity: 0.4; cursor: default; }
+.market { width: 100%; border-collapse: collapse; font-size: clamp(12px, 3.4vw, 15px); }
+.market th, .market td { padding: 7px 6px; border-bottom: 1px solid rgba(0,255,100,0.18); text-align: right; }
+.market th:first-child, .market td:first-child { text-align: left; }
+.market th { color: #2f6; font-weight: normal; }
+.market button { padding: 5px 12px; font-size: 13px; margin-left: 4px; }
+#yard-note { margin-top: 10px; font-size: clamp(12px, 3.4vw, 15px); color: #4f8; opacity: 0.9; }
 .row { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-top: 20px; }
 
 /* ---- touch controls ------------------------------------------------------

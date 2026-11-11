@@ -19,8 +19,9 @@ gyro, keyboard/mouse and gamepad.
   per-ship numbers from `shipdata.plist` (`max_flight_speed`, `max_flight_pitch`,
   `max_flight_roll`, `max_energy`, `max_cargo`, …).
 - **Gameplay loop**: launch from a Coriolis station → fly → shoot pirates →
-  dock → buy/sell commodities → refuel → witchspace jump to the next system →
-  repeat. Credits, cargo hold, bounty rewards, shields, laser heat, death.
+  dock → buy/sell commodities → trade your ship in at the shipyard → refuel →
+  witchspace jump to the next system → repeat. Credits, cargo hold, bounty
+  rewards, shields, laser heat, death.
 - **Controls**: virtual stick + throttle + buttons (touch), gyro tilt steering
   with the iOS permission gesture, keyboard, mouse and gamepad.
 
@@ -48,13 +49,16 @@ gyro, keyboard/mouse and gamepad.
 | Fullscreen | `F11` (browser) | FULL | — |
 
 Docking: fly within 400 m of the station at under 120 m/s (or press DOCK under
-1500 m). Refuel and trade from the station screen.
+1500 m). The station screen has two tabs: **Market** (six commodities) and
+**Shipyard** (eleven hulls with real `shipyard.plist` prices; your current ship
+is traded in at ~71% of its price, cargo is sold off automatically, and a
+bought hull leaves the stock for good). Refuel from the same screen.
 
 ## Development
 
 ```bash
 node tests/test-parsers.mjs   # plist + .dat mesh parsers
-node tests/test-game.mjs      # headless gameplay: launch, combat, market, jump, death
+node tests/test-game.mjs      # headless gameplay: launch, combat, market, shipyard, jump, death
 node tests/test-view.mjs      # camera / coordinate-frame convention
 node tests/test-touch.mjs     # double-tap zoom guard
 python3 -m http.server 8099 --directory web   # local server
