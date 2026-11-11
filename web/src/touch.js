@@ -1,6 +1,7 @@
-// Virtual touch controls: left stick (pitch/yaw), throttle slider, roll buttons,
-// fire / injectors / target / dock buttons. Pointer events work with touch,
-// mouse and stylus; CSS keeps them clear of the HUD edges.
+// Virtual touch controls: floating left stick (pitch/yaw — it grabs wherever
+// the finger lands in the left half), throttle slider, roll buttons, fire /
+// injectors / target / dock buttons. Pointer events work with touch, mouse and
+// stylus; CSS keeps them clear of the HUD edges.
 
 import { ctrl, enableGyro, startGyro, stopGyro } from './controls.js';
 
@@ -30,24 +31,51 @@ function makeStick(node, knob, onChange) {
     knob.style.transform = `translate(${dx * rad * 0.6}px, ${dy * rad * 0.6}px)`;
     onChange(dx, -dy); // screen y is down, pitch up is +
   };
+  const start = (e) => {
+    activeId = e.pointerId;
+    try { node.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+    move(e);
+    e.preventDefault();
+  };
   const end = (e) => {
     if (e.pointerId !== activeId) return;
     activeId = null;
     knob.style.transform = 'translate(0,0)';
+    // a floating grab slides back to the default spot on release
+    node.style.left = '';
+    node.style.top = '';
+    node.style.bottom = '';
     onChange(0, 0);
   };
-  node.addEventListener('pointerdown', (e) => {
-    activeId = e.pointerId;
-    node.setPointerCapture(e.pointerId);
-    move(e);
-    e.preventDefault();
-  });
+  node.addEventListener('pointerdown', start);
   node.addEventListener('pointermove', move);
   node.addEventListener('pointerup', end);
   node.addEventListener('pointercancel', end);
   // release even if capture was lost and the finger lifted elsewhere
   window.addEventListener('pointerup', end);
   window.addEventListener('pointercancel', end);
+  return {
+    busy: () => activeId !== null,
+    // Floating grab: centre the ring under the finger before the first move so
+    // grabbing never produces an input jump. The ring may overhang the screen
+    // edge; the finger starts dead-centre, which is what matters.
+    grab(e) {
+      const r = rectOf();
+      node.style.bottom = 'auto';
+      node.style.left = `${e.clientX - r.width / 2}px`;
+      node.style.top = `${e.clientY - r.height / 2}px`;
+      start(e);
+    },
+  };
+}
+
+// A touch may grab the floating stick: left half of the screen, not on a
+// control, not on the radar (tapping that zooms). Exported for tests.
+export function grabsStick(e, w, overRadar) {
+  if (e.pointerType !== 'touch') return false;
+  if (e.clientX >= w / 2) return false;
+  if (e.target?.closest?.('button, a, input, .throttle, .stick')) return false;
+  return !(overRadar && overRadar(e.clientX, e.clientY));
 }
 
 function makeHoldButton(node, onDown, onUp) {
@@ -75,7 +103,7 @@ function makeTapButton(node, onTap) {
   node.addEventListener('pointerdown', (e) => { e.preventDefault(); onTap(); });
 }
 
-export function setupTouchControls({ onGyroToggle }) {
+export function setupTouchControls({ onGyroToggle, overRadar }) {
   const state = { pitch: 0, yaw: 0, roll: 0, fire: false, injectors: false,
                   throttleSet: null, targetNext: false, dock: false };
   ctrl.touchState = state;
@@ -93,7 +121,17 @@ export function setupTouchControls({ onGyroToggle }) {
 
   const stickL = el('stickL');
   const knobL = el('stickL-knob');
-  if (stickL) makeStick(stickL, knobL, (x, y) => { state.yaw = -x; state.pitch = y; });
+  const stick = stickL ? makeStick(stickL, knobL, (x, y) => { state.yaw = -x; state.pitch = y; }) : null;
+
+  // Floating stick: the first touch anywhere in the left half grabs it right
+  // where the finger lands, so the hand never has to reach a fixed corner.
+  window.addEventListener('pointerdown', (e) => {
+    if (!stick || stick.busy()) return;
+    const layer = el('touch');
+    if (layer && layer.classList.contains('hidden')) return; // title/dock screen
+    if (!grabsStick(e, window.innerWidth, overRadar)) return;
+    stick.grab(e);
+  });
 
   // throttle slider: vertical drag sets absolute throttle target
   const slider = el('throttle');

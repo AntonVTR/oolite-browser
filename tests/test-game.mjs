@@ -10,7 +10,9 @@ const { parsePlist } = await import(join(root, 'web/src/plist.js'));
 const { parseMesh } = await import(join(root, 'web/src/mesh.js'));
 const { SHIP_DEFS, resolveTextureName } = await import(join(root, 'web/src/assets.js'));
 const { createGame, stepGame, launch, marketFor, buyGood, sellGood, cargoUsed, jump, SYSTEMS,
-  spawnPirate, spawnTrader, shipyardFor, tradeInValue, buyShip } = await import(join(root, 'web/src/game.js'));
+  spawnPirate, spawnTrader, shipyardFor, tradeInValue, buyShip, zoomScanner } =
+  await import(join(root, 'web/src/game.js'));
+const { Hud } = await import(join(root, 'web/src/hud.js'));
 const { distanceLy } = await import(join(root, 'web/src/galaxy.js'));
 const { quatRotate } = await import(join(root, 'web/src/math.js'));
 
@@ -265,6 +267,24 @@ assert.ok(buyShip(g, 'python-player'), 'python affordable with cash');
 assert.strictEqual(g.player.radius, parsedMeshes.python.bbox.radius,
   'radius resolved through the -player suffix');
 assert.strictEqual(g.player.shipKey, 'python-player');
+
+// ---- radar zoom --------------------------------------------------------------
+assert.strictEqual(g.scannerZoom, 1, 'scanner starts at 1x');
+for (const want of [2, 3, 4, 5, 1]) {
+  assert.strictEqual(zoomScanner(g, 1), want, `zoom in wraps to ${want}`);
+}
+assert.strictEqual(zoomScanner(g, -1), 1, 'zoom out stops at 1x');
+
+// tap hit-testing against the real hud.plist scanner dial (1280x800)
+const hud = new Hud({ width: 0, height: 0, getContext: () => ({}) },
+  { plists: { hud: parsePlist(read('config/hud.plist')), crosshairs: {} } });
+hud.resize(1280, 800, 1);
+// dial: x 0, y 68, y_origin -1, 288x64 -> centre (640, ~687), radii 240 x 53
+assert.strictEqual(hud.scannerHit(640, 687), true, 'radar centre is a hit');
+assert.strictEqual(hud.scannerHit(875, 687), true, 'radar right edge is a hit');
+assert.strictEqual(hud.scannerHit(900, 687), false, 'past the ellipse is not');
+assert.strictEqual(hud.scannerHit(640, 400), false, 'screen middle is not the radar');
+assert.strictEqual(hud.scannerHit(60, 690), false, 'far left is not the radar');
 
 // ---- jump -----------------------------------------------------------------
 launch(g);

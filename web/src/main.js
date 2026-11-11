@@ -9,7 +9,7 @@ import { setupTouchControls, clearTouchEdges, syncThrottleKnob } from './touch.j
 import { loadAssets, SHIP_DEFS, resolveTextureName } from './assets.js';
 import {
   createGame, stepGame, launch, marketFor, buyGood, sellGood, cargoUsed,
-  shipyardFor, tradeInValue, buyShip, shipName,
+  shipyardFor, tradeInValue, buyShip, shipName, zoomScanner,
   SYSTEMS,
 } from './game.js';
 import { mat4, mat4FromQuatPosScale, quatRotate, add, scale as vscale } from './math.js';
@@ -426,11 +426,19 @@ async function main() {
   setupKeyboard(window);
   setupMouse(glCanvas);
   setupGamepad();
-  setupTouchControls({});
+  // Tap the radar to zoom it; the same predicate keeps the floating stick
+  // grab off the radar ellipse (both listen for pointerdown).
+  const overRadar = (x, y) => hud.scannerHit(x, y);
+  setupTouchControls({ overRadar });
+  window.addEventListener('pointerdown', (e) => {
+    if (e.pointerType !== 'touch' || !game.hudVisible) return;
+    if (overRadar(e.clientX, e.clientY)) zoomScanner(game, 1);
+  });
   wireDockScreen();
 
   window.addEventListener('keydown', (e) => {
     if (e.code === 'KeyJ') jumpRequested = true;
+    if (e.code === 'KeyZ') zoomScanner(game, e.shiftKey ? -1 : 1); // Oolite z / Z
   });
 
   el('btnStart').addEventListener('click', () => {
@@ -470,6 +478,9 @@ async function main() {
       // ?yard opens the shipyard tab of the station screen
       if (query.has('yard')) showDockTab('shipyard');
     }
+    // ?zoom=N sets the scanner zoom (headless smoke test for the radar zoom)
+    const z = Number(query.get('zoom'));
+    if (query.has('zoom') && z >= 1 && z <= 5) game.scannerZoom = Math.round(z);
   }
 
   requestAnimationFrame((t) => { lastT = t; requestAnimationFrame(frame); });

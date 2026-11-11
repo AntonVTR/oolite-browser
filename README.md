@@ -22,8 +22,10 @@ gyro, keyboard/mouse and gamepad.
   dock → buy/sell commodities → trade your ship in at the shipyard → refuel →
   witchspace jump to the next system → repeat. Credits, cargo hold, bounty
   rewards, shields, laser heat, death.
-- **Controls**: virtual stick + throttle + buttons (touch), gyro tilt steering
-  with the iOS permission gesture, keyboard, mouse and gamepad.
+- **Controls**: virtual stick + throttle + buttons (touch) — the stick floats:
+  touch anywhere in the left half to grab it where your finger lands; radar tap
+  zooms the scanner. Gyro tilt steering with the iOS permission gesture,
+  keyboard, mouse and gamepad.
 
 ## Not ported yet (P1/P2)
 
@@ -45,6 +47,7 @@ gyro, keyboard/mouse and gamepad.
 | Next target | `Tab` | TGT | LB / B |
 | Dock | `Enter` | DOCK | Back |
 | Jump | `J` | JUMP | Y |
+| Scanner zoom | `Z` / `Shift+Z` | tap the radar | — |
 | Gyro steering | `G` | GYRO | — |
 | Fullscreen | `F11` (browser) | FULL | — |
 

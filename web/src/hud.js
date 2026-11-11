@@ -38,7 +38,7 @@ export class Hud {
       'drawAltitudeBar:': (i) => this.drawAltitudeBar(i),
       'drawSurround:': (i) => this.drawSurround(i, YELLOW),
       'drawCompass:': (i) => this.drawCompass(i),
-      'drawScannerZoomIndicator:': () => {},
+      'drawScannerZoomIndicator:': (i) => this.drawScannerZoomIndicator(i),
       'drawMissileDisplay:': (i) => this.drawMissileDisplay(i),
       'drawStatusLight:': (i) => this.drawStatusLight(i),
       'drawClock:': (i) => this.drawClock(i),
@@ -302,8 +302,10 @@ export class Hud {
     ctx.moveTo(cx - rw, cy); ctx.lineTo(cx + rw, cy);
     ctx.stroke();
 
-    // range ladder: one division per 25.6 km (SCANNER_MAX_RANGE / 1000 / zoom)
-    const kmScan = 25.6;
+    // zoom: narrower range — ladder divisions and blip spread both scale with
+    // it (HeadUpDisplay.m: km_scan = 0.001 * SCANNER_MAX_RANGE / zoom)
+    const z = this.g.scannerZoom || 1;
+    const kmScan = 25.6 / z;
     const hdiv = (0.5 * p.h) / kmScan; // HUD units per km-scan
     const wdiv = 0.25 * p.w / kmScan;
     let w1 = wdiv;
@@ -348,8 +350,8 @@ export class Hud {
       const ry = rot[3] * dx + rot[4] * dy + rot[5] * dz;
       const rz = rot[6] * dx + rot[7] * dy + rot[8] * dz;
       const dist = Math.hypot(dx, dy, dz);
-      if (dist > 25600 * 1.4) continue;
-      const s = upscale;
+      if (dist > (25600 / z) * 1.4) continue;
+      const s = upscale * z;
       const x1 = rx * s;
       const y1 = zFactor * rz * s;
       const y2 = y1 + yFactor * ry * s;
@@ -365,6 +367,24 @@ export class Hud {
       ctx.fillRect(bx - this.L(3), by2 - this.L(3), this.L(5), this.L(3));
     }
     ctx.globalAlpha = 1;
+  }
+
+  // Tap target: the scanner ellipse in CSS px — same math as drawScanner.
+  scannerHit(x, y) {
+    const info = (this.hud.dials || []).find((d) => d.selector === 'drawScanner:');
+    if (!info) return false;
+    const p = this.place(info, 0, -180, 288, 64);
+    const nx = (x - this.X(p.x)) / (this.L(p.w) / 2);
+    const ny = (y - this.Y(p.y)) / (this.L(p.h) / 2);
+    return nx * nx + ny * ny <= 1;
+  }
+
+  // Zoom level as "N:1", dimmed at 1× (Oolite prints the same from its atlas).
+  drawScannerZoomIndicator(info) {
+    const z = Math.max(1, Math.round(this.g.scannerZoom || 1));
+    const p = this.place(info, 100, 36, 0, 0);
+    const color = Array.isArray(info.rgb_color) ? info.rgb_color : YELLOW;
+    this.text(`${z}:1`, p.x, p.y, 10, color, 0, p.a * (z === 1 ? 0.75 : 1));
   }
 
   // ---- compass -------------------------------------------------------------

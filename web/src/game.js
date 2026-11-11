@@ -164,6 +164,7 @@ export function createGame(assets) {
     fps: 60,
     alert: 'green',
     hudVisible: false,
+    scannerZoom: 1, // radar zoom, 1×…5× (SCANNER_ZOOM_LEVELS)
     showCrosshair: true,
     weaponsOnline: true,
     weaponKey: 'WEAPON_BEAM_LASER',
@@ -240,6 +241,14 @@ export function createGame(assets) {
 
 export function cargoUsed(g) {
   return Object.values(g.player.cargo).reduce((s, v) => s + v, 0);
+}
+
+// Scanner zoom, 1×…5× — Oolite's z / Z keys (SCANNER_ZOOM_LEVELS 5). dir +1
+// wraps 5 → 1 (the source instead ramps back down), dir -1 stops at 1×.
+export function zoomScanner(g, dir) {
+  const z = g.scannerZoom + dir;
+  g.scannerZoom = z > 5 ? 1 : z < 1 ? 1 : z;
+  return g.scannerZoom;
 }
 
 // Deterministic market: prices/stock depend only on the system, so the screen
