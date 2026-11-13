@@ -160,6 +160,12 @@ function renderScene() {
   for (const s of game.shots) {
     renderer.drawBeam(s.from, s.to, 3.5, s.hostile ? [1, 0.25, 0.15, 0.9] : [0.4, 1, 0.4, 0.95]);
   }
+  // missiles: a bright motor trail with a glowing tip
+  for (const m of game.missiles) {
+    const tail = add(m.pos, vscale(m.vel, -0.06));
+    renderer.drawBeam(tail, m.pos, 4, m.hostile ? [1, 0.35, 0.2, 0.95] : [1, 0.85, 0.35, 0.95]);
+    renderer.drawBillboard(m.pos, 9, 9, boomTex, [1, 0.9, 0.6, 0.85]);
+  }
   for (const x of game.explosions) {
     const t = 1 - x.life / x.maxLife;
     const size = x.size * (0.5 + t * 1.4);
@@ -205,6 +211,7 @@ function playEvents() {
   for (const ev of game.events) {
     switch (ev.type) {
       case 'laser': audio.play('laser', { volume: 0.45 }); break;
+      case 'missile': audio.play('missile', { volume: 0.6 }); break;
       case 'hit': audio.play('hit', { volume: 0.5 }); break;
       case 'boom': audio.play('bigbang', { volume: 0.7 }); break;
       case 'beep': audio.play('beep', { volume: 0.35 }); break;
@@ -374,10 +381,12 @@ function frame(now) {
     throttle: c.throttle, throttleSet: c.throttleSet,
     fire: c.fire, injectors: c.injectors,
     targetNext: c.targetNext, dockRequest: c.dockRequest,
+    launchMissile: c.launchMissile,
     jump: jumpRequested || c.jump,
   }, dt);
   c.targetNext = false;
   c.dockRequest = false;
+  c.launchMissile = false;
   c.jump = false;
   jumpRequested = false;
   clearTouchEdges();
@@ -436,6 +445,13 @@ async function main() {
   // Tap the radar to zoom it; the same predicate keeps the floating stick
   // grab off the radar ellipse (both listen for pointerdown).
   const overRadar = (x, y) => hud.scannerHit(x, y);
+  // MISSILE rides with the static flight buttons; created here (like CHART
+  // below) so the markup stays small — touch.js wires it by id.
+  const btnMissile = document.createElement('button');
+  btnMissile.id = 'btnMissile';
+  btnMissile.className = 'ctl';
+  btnMissile.textContent = 'MISSILE';
+  el('touch').querySelector('.buttons').insertBefore(btnMissile, el('btnFire'));
   setupTouchControls({ overRadar });
   window.addEventListener('pointerdown', (e) => {
     if (e.pointerType !== 'touch' || !game.hudVisible) return;

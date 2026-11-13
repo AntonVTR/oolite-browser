@@ -10,6 +10,7 @@
 export const ctrl = {
   pitch: 0, yaw: 0, roll: 0, throttle: 0, throttleSet: null,
   fire: false, injectors: false,
+  launchMissile: false, ecm: false,
   targetNext: false, dockRequest: false, pause: false, jump: false,
   gyroOn: false,
   onGyroKey: null, // keyboard G → toggleGyro() installed by touch.js
@@ -24,6 +25,7 @@ export function setupKeyboard(target = window) {
     if (e.repeat) return;
     keys.add(e.code);
     if (e.code === 'Tab') { ctrl.targetNext = true; e.preventDefault(); }
+    if (e.code === 'KeyM') ctrl.launchMissile = true; // Oolite's missile key
     if (e.code === 'Enter') ctrl.dockRequest = true;
     if (e.code === 'KeyG' && ctrl.onGyroKey) ctrl.onGyroKey(); // keydown = iOS gesture
     if (e.code === 'Escape') ctrl.pause = true;
@@ -95,19 +97,24 @@ export function setupMouse(glCanvas) {
 //   left stick  = pitch / yaw        right stick = roll / throttle
 //   D-pad       = roll / throttle    A or RT = fire   X / LT / RB = injectors
 //   B or LB     = next target        Y = jump         Back = dock request
+//   Start       = launch missile
 export function setupGamepad() {
   const pad = ctrl.sources.pad;
   let jumpWasDown = false;
+  let missileWasDown = false;
   pad.poll = () => {
     const pads = navigator.getGamepads ? navigator.getGamepads() : [];
     const gp = pads && [...pads].find(Boolean);
-    if (!gp) { jumpWasDown = false; return null; }
+    if (!gp) { jumpWasDown = false; missileWasDown = false; return null; }
     const ax = (i) => (typeof gp.axes[i] === 'number' ? gp.axes[i] : 0);
     const btn = (i) => !!(gp.buttons[i] && gp.buttons[i].pressed);
     const dz = (v) => (Math.abs(v) < 0.15 ? 0 : v);
     const jumpDown = btn(3);
     const jump = jumpDown && !jumpWasDown; // one jump per press
     jumpWasDown = jumpDown;
+    const missileDown = btn(9);
+    const missile = missileDown && !missileWasDown; // one missile per press
+    missileWasDown = missileDown;
     let roll = dz(ax(2));
     if (btn(14)) roll = -1; else if (btn(15)) roll = 1;
     let throttle = dz(-ax(3));
@@ -121,6 +128,7 @@ export function setupGamepad() {
       target: btn(4) || btn(1),
       jump,
       dock: btn(8),
+      missile,
     };
   };
 }
@@ -189,7 +197,9 @@ export function updateCtrl() {
   if (pad && pad.target) ctrl.targetNext = true;
   if (pad && pad.jump) ctrl.jump = true;
   if (pad && pad.dock) ctrl.dockRequest = true;
+  if (pad && pad.missile) ctrl.launchMissile = true;
   if (t.targetNext) ctrl.targetNext = true;
   if (t.dock) ctrl.dockRequest = true;
+  if (t.launchMissile) ctrl.launchMissile = true;
   return ctrl;
 }

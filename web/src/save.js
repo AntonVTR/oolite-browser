@@ -80,6 +80,7 @@ export function applySave(g, data) {
   g.entities = g.entities.filter((e) => e.type === 'station');
   g.shots = [];
   g.explosions = [];
+  g.missiles = [];
   g.target = null;
   g.messages = [];
   g.alert = 'green';

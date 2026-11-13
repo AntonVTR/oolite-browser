@@ -173,6 +173,7 @@ export function createGame(assets) {
     messages: [],
     explosions: [],
     shots: [],
+    missiles: [], // missiles in flight (player's and incoming)
     entities: [],
     target: null,
     targetBounty: 0,
@@ -426,6 +427,7 @@ export function jump(g, selected) {
   g.entities = [];
   g.shots = [];
   g.explosions = [];
+  g.missiles = [];
   g.target = null;
   spawnStation(g);
   // Same framing as launch: station ahead of the nose, not behind it.
@@ -503,6 +505,98 @@ function damagePlayer(g, amount) {
     g.phase = 'dead';
     g.hudVisible = false;
   }
+}
+
+// ---- missiles --------------------------------------------------------------
+// The real missile (shipdata oolite_template_missile): 750 m/s, 25 m
+// proximity fuse, 30 km range, blastPower 180.
+// shortcut: one standard missile per press at the locked target — no pylon
+// missile types, no lock-on status, no missile-vs-missile interception.
+const MISSILE_SPEED = 750;
+const MISSILE_RANGE = 30000;
+const MISSILE_DAMAGE = 180;
+const MISSILE_FUSE = 25;
+const MISSILE_TURN = 1.8; // rad/s of course change
+
+export function launchMissile(g) {
+  const p = g.player;
+  const t = g.target;
+  if (g.phase !== 'flight') return false;
+  if (!t || !t.alive || t.type !== 'ship' || !g.entities.includes(t)) {
+    pushMessage(g, 'NO MISSILE TARGET', RED);
+    return false;
+  }
+  if (p.missiles <= 0) { pushMessage(g, 'OUT OF MISSILES', RED); return false; }
+  p.missiles--;
+  const fwd = quatRotate(p.quat, [0, 0, 1]);
+  g.missiles.push({
+    pos: add(p.pos, scale(fwd, p.radius + 5)),
+    vel: scale(fwd, MISSILE_SPEED),
+    target: t,
+    hostile: false,
+    life: MISSILE_RANGE / MISSILE_SPEED,
+  });
+  g.events.push({ type: 'missile' });
+  pushMessage(g, 'MISSILE LAUNCHED', YELLOW, 3);
+  return true;
+}
+
+// Hostile ships loose missiles at the player, as Oolite's combat AI does.
+export function launchMissileAt(g, from, target, hostile) {
+  const dir = norm(sub(target.pos, from.pos));
+  g.missiles.push({
+    pos: add(from.pos, scale(dir, from.radius + 5)),
+    vel: scale(dir, MISSILE_SPEED),
+    target,
+    hostile: !!hostile,
+    life: MISSILE_RANGE / MISSILE_SPEED,
+  });
+  g.events.push({ type: 'missile' });
+  if (hostile) pushMessage(g, 'INCOMING MISSILE', RED, 3);
+  return true;
+}
+
+function detonate(g, m) {
+  m.life = 0;
+  g.explosions.push({ pos: m.pos.slice(), life: 0.7, maxLife: 0.7, size: 40 });
+  g.events.push({ type: 'boom' });
+  const t = m.target;
+  if (!t) return;
+  if (m.hostile) {
+    if (g.player.alive) damagePlayer(g, MISSILE_DAMAGE);
+  } else if (t.alive && t.type === 'ship') {
+    damageShip(g, t, MISSILE_DAMAGE, true);
+  }
+}
+
+function updateMissiles(g, dt) {
+  const p = g.player;
+  for (const m of g.missiles) {
+    m.life -= dt;
+    const t = m.target;
+    const valid = t && (t === p ? p.alive : t.alive && g.entities.includes(t));
+    if (!valid) { m.life = 0; continue; }
+    const dir = norm(m.vel);
+    const want = norm(sub(t.pos, m.pos));
+    const ax = cross(dir, want);
+    const axl = len(ax);
+    if (axl > 1e-6) {
+      const angle = Math.atan2(axl, Math.max(-1, Math.min(1, dot(dir, want))));
+      const step = Math.min(angle, MISSILE_TURN * dt);
+      const q = quatAxisAngle(ax[0] / axl, ax[1] / axl, ax[2] / axl, step);
+      m.vel = scale(quatRotate(q, dir), MISSILE_SPEED);
+    }
+    const prev = m.pos;
+    m.pos = add(prev, scale(m.vel, dt));
+    // Fuse against the whole segment travelled this frame, not just the end
+    // point: at 750 m/s a 50 ms step can skip clean past a small target.
+    const seg = sub(m.pos, prev);
+    const seg2 = dot(seg, seg);
+    let f = seg2 > 0 ? dot(sub(t.pos, prev), seg) / seg2 : 0;
+    f = f < 0 ? 0 : f > 1 ? 1 : f;
+    if (dist(add(prev, scale(seg, f)), t.pos) <= t.radius + MISSILE_FUSE) detonate(g, m);
+  }
+  g.missiles = g.missiles.filter((m) => m.life > 0);
 }
 
 // ---- steering -------------------------------------------------------------
@@ -583,6 +677,18 @@ function updateNPC(e, g, dt) {
     g.events.push({ type: 'laser' });
     if (aligned > 0.995 || Math.random() < 0.5) damagePlayer(g, 35);
   }
+
+  // Missiles: hostiles loose one now and then once in range. shortcut: NPCs
+  // carry unlimited missiles — only the player counts down a pylon.
+  if (e.missileCd === undefined) e.missileCd = 6 + Math.random() * 14;
+  e.missileCd -= dt;
+  if (e.missileCd <= 0) {
+    e.missileCd = 25 + Math.random() * 30;
+    const inbound = g.missiles.reduce((n, m) => n + (m.hostile ? 1 : 0), 0);
+    if (d < 6000 && d > 200 && inbound < 2 && p.alive && Math.random() < 0.5) {
+      launchMissileAt(g, e, p, true);
+    }
+  }
 }
 
 // ---- per-frame ------------------------------------------------------------
@@ -655,6 +761,7 @@ export function stepGame(g, input, dt) {
   // --- weapons ------------------------------------------------------------
   g.weaponCooldown -= dt;
   if (input.fire && g.weaponCooldown <= 0 && g.weaponsOnline) fireLaser(g);
+  if (input.launchMissile) launchMissile(g);
 
   // --- entities -----------------------------------------------------------
   for (const e of g.entities) {
@@ -666,6 +773,7 @@ export function stepGame(g, input, dt) {
     updateNPC(e, g, dt);
   }
   g.entities = g.entities.filter((e) => e.alive);
+  updateMissiles(g, dt);
 
   // --- respawn contacts ---------------------------------------------------
   g.spawnTimer -= dt;

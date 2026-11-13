@@ -10,7 +10,7 @@ const { parsePlist } = await import(join(root, 'web/src/plist.js'));
 const { parseMesh } = await import(join(root, 'web/src/mesh.js'));
 const { SHIP_DEFS, resolveTextureName } = await import(join(root, 'web/src/assets.js'));
 const { createGame, stepGame, launch, marketFor, buyGood, sellGood, cargoUsed, jump, SYSTEMS,
-  spawnPirate, spawnTrader, shipyardFor, tradeInValue, buyShip, zoomScanner } =
+  spawnPirate, spawnTrader, shipyardFor, tradeInValue, buyShip, zoomScanner, launchMissile } =
   await import(join(root, 'web/src/game.js'));
 const { Hud } = await import(join(root, 'web/src/hud.js'));
 const { distanceLy } = await import(join(root, 'web/src/galaxy.js'));
@@ -133,6 +133,38 @@ assert.ok(
   'incoming fire drains shields/energy'
 );
 
+// ---- missiles: launch, track, hit -----------------------------------------
+g.entities = g.entities.filter((e) => e.type === 'station');
+g.player.fwdShield = g.player.maxShield;
+g.player.aftShield = g.player.maxShield;
+g.player.energy = g.player.maxEnergy;
+const quarry = makeTarget({ energy: 150 }); // one blastPower 180 warhead away from wrecked
+g.entities.push(quarry);
+g.target = quarry;
+const pylon0 = g.player.missiles;
+assert.strictEqual(g.missiles.length, 0, 'nothing in flight yet');
+assert.ok(launchMissile(g), 'missile launches at the locked target');
+assert.strictEqual(g.player.missiles, pylon0 - 1, 'the pylon is spent');
+assert.strictEqual(g.missiles.length, 1, 'one missile in flight');
+assert.strictEqual(g.missiles[0].hostile, false, 'player missiles are not hostile');
+// an empty pylon refuses to launch while the lock is good
+g.player.missiles = 0;
+assert.strictEqual(launchMissile(g), false, 'empty pylons refuse to launch');
+g.player.missiles = pylon0 - 1;
+g.target = null;
+assert.strictEqual(launchMissile(g), false, 'without a lock the launch is refused');
+assert.strictEqual(g.player.missiles, pylon0 - 1, 'a refused launch spends no missile');
+g.target = quarry;
+for (let i = 0; i < 600 && quarry.alive; i++) stepGame(g, noInput(), 1 / 60);
+assert.strictEqual(quarry.alive, false, 'the missile tracks its target and hits');
+assert.strictEqual(g.missiles.length, 0, 'the missile is spent on impact');
+assert.ok(g.explosions.length > 0, 'and the impact blows up');
+assert.strictEqual(g.kills, kills0 + 2, 'a missile kill counts like a laser kill');
+const kills1 = g.kills;
+for (let i = 0; i < 60; i++) stepGame(g, noInput(), 1 / 60);
+assert.strictEqual(g.player.missiles, pylon0 - 1, 'missiles are not auto-reloaded');
+assert.strictEqual(g.kills, kills1, 'nothing else died in the meantime');
+
 // ---- NPC roster: new ships, peaceful traders, break-off ------------------
 const distToPlayer = (e) => Math.hypot(
   e.pos[0] - g.player.pos[0], e.pos[1] - g.player.pos[1], e.pos[2] - g.player.pos[2]
@@ -161,7 +193,7 @@ anaconda.quat = [0, 0, 0, 1];
 const cr0 = g.player.credits;
 for (let i = 0; i < 900 && anaconda.alive; i++) stepGame(g, { fire: true }, 1 / 60);
 assert.strictEqual(anaconda.alive, false, 'laser destroys the anaconda');
-assert.strictEqual(g.kills, kills0 + 2, 'kill counted');
+assert.strictEqual(g.kills, kills0 + 3, 'kill counted (laser, missile, anaconda)');
 assert.strictEqual(anaconda.bounty, 0, 'innocent trader carries no bounty');
 assert.strictEqual(g.player.credits, cr0, 'so killing it pays nothing');
 assert.ok(!g.entities.includes(anaconda), 'anaconda wreck removed');
