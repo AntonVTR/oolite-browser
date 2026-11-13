@@ -26,6 +26,7 @@ export function setupKeyboard(target = window) {
     keys.add(e.code);
     if (e.code === 'Tab') { ctrl.targetNext = true; e.preventDefault(); }
     if (e.code === 'KeyM') ctrl.launchMissile = true; // Oolite's missile key
+    if (e.code === 'KeyX') ctrl.ecm = true;
     if (e.code === 'Enter') ctrl.dockRequest = true;
     if (e.code === 'KeyG' && ctrl.onGyroKey) ctrl.onGyroKey(); // keydown = iOS gesture
     if (e.code === 'Escape') ctrl.pause = true;
@@ -201,5 +202,6 @@ export function updateCtrl() {
   if (t.targetNext) ctrl.targetNext = true;
   if (t.dock) ctrl.dockRequest = true;
   if (t.launchMissile) ctrl.launchMissile = true;
+  if (t.ecm) ctrl.ecm = true;
   return ctrl;
 }

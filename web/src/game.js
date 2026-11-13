@@ -187,7 +187,8 @@ export function createGame(assets) {
     kills: 0,
     pirateSeq: 0,
     traderSeq: 0,
-    hasEquipment: () => false, // shortcut: no equipment system yet
+    equipmentTypes: assets.plists.equipment || [], // real equipment.plist rows
+    hasEquipment: (key) => !!g.player.equipment[key],
 
     shipdata: assets.plists.shipdata,
     parsedMeshes: assets.parsedMeshes,
@@ -205,6 +206,10 @@ export function createGame(assets) {
     weaponOffline: 0,
     shieldCooldown: 0,
     dockHint: 0,
+    ecmTime: 0,      // seconds left of the ECM effect
+    ecmPulse: 0,     // countdown to the next jamming pulse
+    ecmPulseNo: 0,   // pulses already fired (4 make one sweep)
+    ecmCooldown: 0,  // re-arm time after a sweep
   };
 
   const pd = def(g, 'cobra3');
@@ -232,6 +237,7 @@ export function createGame(assets) {
     weaponTemp: 0,
     credits: 100,
     cargo: {},
+    equipment: {}, // fitted gear: EQ_ECM, …
     shipKey: 'cobra3-player', // yard key of the starting hull, for trade-in
     alive: true,
   };
@@ -356,6 +362,44 @@ export function buyShip(g, key) {
   g.yardStock = g.yardStock.filter((k) => k !== key);
   pushMessage(g, `${shipName(g, key).toUpperCase()} BOUGHT — TRADE-IN ${tradeIn} CR`, GREEN, 6);
   g.events.push({ type: 'buy' });
+  return true;
+}
+
+// ---- equipment -------------------------------------------------------------
+// Sold at the station the way the shipyard sells hulls, at the real
+// equipment.plist prices. The port models two items of Oolite's 41.
+// shortcut: no tech-level or ship-compatibility gating on what is listed.
+const EQUIPMENT_KEYS = ['EQ_ECM', 'EQ_MISSILE'];
+
+export function missileCap(g) {
+  return def(g, g.player.shipKey).max_missiles || 0;
+}
+
+export function equipmentFor(g) {
+  const stock = g.equipmentTypes || [];
+  const p = g.player;
+  return EQUIPMENT_KEYS.map((key) => {
+    const e = stock.find((row) => row[3] === key);
+    if (!e) return null;
+    if (key === 'EQ_MISSILE') {
+      const cap = missileCap(g);
+      return { key, name: e[2], price: e[1], note: `pylons ${p.missiles}/${cap}`, can: p.missiles < cap };
+    }
+    const owned = !!p.equipment[key];
+    return { key, name: e[2], price: e[1], note: owned ? 'fitted' : '', can: !owned };
+  }).filter(Boolean);
+}
+
+export function buyEquipment(g, key) {
+  const row = equipmentFor(g).find((r) => r.key === key);
+  const p = g.player;
+  if (!row || !row.can) return false;
+  if (p.credits < row.price) { pushMessage(g, 'INSUFFICIENT CREDITS', RED); return false; }
+  p.credits -= row.price;
+  if (key === 'EQ_MISSILE') p.missiles++;
+  else p.equipment[key] = true;
+  g.events.push({ type: 'buy' });
+  pushMessage(g, key === 'EQ_MISSILE' ? 'MISSILE FITTED' : `${row.name.toUpperCase()} FITTED`, GREEN);
   return true;
 }
 
@@ -599,6 +643,53 @@ function updateMissiles(g, dt) {
   g.missiles = g.missiles.filter((m) => m.life > 0);
 }
 
+// ---- ECM -------------------------------------------------------------------
+// Upstream: ECM_DURATION 2.5 s, four pulses a half second apart sweeping out
+// to SCANNER_MAX_RANGE (25.6 km), draining 20 energy per second while it runs.
+// shortcut: Oolite re-arms on energy alone; this adds a short cooldown so the
+// button has an unmistakable rhythm on touch screens.
+export function activateECM(g) {
+  const p = g.player;
+  if (g.phase !== 'flight' || g.ecmTime > 0 || g.ecmCooldown > 0) return false;
+  if (!g.hasEquipment('EQ_ECM')) { pushMessage(g, 'NO ECM FITTED', RED); return false; }
+  if (!g.weaponsOnline) return false;
+  g.ecmTime = 2.5;
+  g.ecmPulse = 0;
+  g.ecmPulseNo = 0;
+  pushMessage(g, 'ECM ACTIVE', BLUE, 3);
+  g.events.push({ type: 'ecm' });
+  return true;
+}
+
+function updateECM(g, dt) {
+  const p = g.player;
+  g.ecmTime -= dt;
+  p.energy = Math.max(0, p.energy - 20 * dt);
+  g.ecmPulse -= dt;
+  if (g.ecmPulse <= 0 && g.ecmPulseNo < 4) {
+    g.ecmPulseNo++;
+    g.ecmPulse = 0.5;
+    const radius = g.ecmPulseNo * 6400; // SCANNER_MAX_RANGE / 4 per pulse
+    let jammed = 0;
+    for (const m of g.missiles) {
+      if (m.hostile && m.life > 0 && dist(m.pos, p.pos) <= radius) {
+        m.life = 0;
+        jammed++;
+        g.explosions.push({ pos: m.pos.slice(), life: 0.5, maxLife: 0.5, size: 25 });
+      }
+    }
+    if (jammed) {
+      g.events.push({ type: 'boom' });
+      pushMessage(g, 'MISSILE JAMMED', GREEN, 3);
+    }
+  }
+  if (g.ecmTime <= 0 || p.energy <= 0) {
+    if (p.energy <= 0 && g.ecmTime > 0) pushMessage(g, 'ECM OUT OF ENERGY', RED);
+    g.ecmTime = 0;
+    g.ecmCooldown = 5;
+  }
+}
+
 // ---- steering -------------------------------------------------------------
 function steerToward(e, targetPos, dt, rate) {
   const fwd = quatRotate(e.quat, [0, 0, 1]);
@@ -678,9 +769,10 @@ function updateNPC(e, g, dt) {
     if (aligned > 0.995 || Math.random() < 0.5) damagePlayer(g, 35);
   }
 
-  // Missiles: hostiles loose one now and then once in range. shortcut: NPCs
-  // carry unlimited missiles — only the player counts down a pylon.
-  if (e.missileCd === undefined) e.missileCd = 6 + Math.random() * 14;
+  // Missiles: hostiles loose one now and then once in range. The first shot
+  // waits 15–40 s so a fresh commander is not swarmed on launch.
+  // shortcut: NPCs carry unlimited missiles — only the player counts a pylon.
+  if (e.missileCd === undefined) e.missileCd = 15 + Math.random() * 25;
   e.missileCd -= dt;
   if (e.missileCd <= 0) {
     e.missileCd = 25 + Math.random() * 30;
@@ -762,6 +854,9 @@ export function stepGame(g, input, dt) {
   g.weaponCooldown -= dt;
   if (input.fire && g.weaponCooldown <= 0 && g.weaponsOnline) fireLaser(g);
   if (input.launchMissile) launchMissile(g);
+  if (g.ecmCooldown > 0) g.ecmCooldown = Math.max(0, g.ecmCooldown - dt);
+  if (input.ecm) activateECM(g);
+  if (g.ecmTime > 0) updateECM(g, dt);
 
   // --- entities -----------------------------------------------------------
   for (const e of g.entities) {

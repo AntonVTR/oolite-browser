@@ -42,6 +42,7 @@ g.player.credits = 5000;
 assert.ok(buyGood(g, 'food', 4), 'buy cargo to carry across the save');
 g.systemIndex = 42; // pretend we jumped on
 g.kills = 3;
+g.player.equipment = { EQ_ECM: true }; // fitted gear rides along
 dock(g);
 assert.strictEqual(g.phase, 'docked');
 
@@ -58,6 +59,12 @@ assert.strictEqual(back.player.credits, g.player.credits);
 assert.strictEqual(back.player.fuel, g.player.fuel);
 assert.strictEqual(back.player.shipKey, 'cobra3-player');
 assert.deepStrictEqual(back.player.cargo, g.player.cargo, 'manifest survives');
+assert.deepStrictEqual(back.player.equipment, { EQ_ECM: true }, 'fitted equipment survives');
+// a save from before equipment existed loads with an empty rack
+const legacy = JSON.parse(serializeSave(g));
+delete legacy.player.equipment;
+assert.deepStrictEqual(parseSave(JSON.stringify(legacy)).player.equipment, {},
+  'old saves load without equipment');
 assert.strictEqual(cargoUsed(back), 4);
 assert.ok(back.entities.every((e) => e.type === 'station'),
   'world is rebuilt, not saved');

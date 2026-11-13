@@ -106,7 +106,7 @@ function makeTapButton(node, onTap) {
 export function setupTouchControls({ onGyroToggle, overRadar }) {
   const state = { pitch: 0, yaw: 0, roll: 0, fire: false, injectors: false,
                   throttleSet: null, targetNext: false, dock: false,
-                  launchMissile: false };
+                  launchMissile: false, ecm: false };
   ctrl.touchState = state;
 
   // iOS Safari ignores user-scalable=no, so a fast second tap in the same spot
@@ -178,6 +178,8 @@ export function setupTouchControls({ onGyroToggle, overRadar }) {
   if (tgt) makeTapButton(tgt, () => { state.targetNext = true; });
   const msl = el('btnMissile');
   if (msl) makeTapButton(msl, () => { state.launchMissile = true; });
+  const ecm = el('btnEcm');
+  if (ecm) makeTapButton(ecm, () => { state.ecm = true; });
   const dock = el('btnDock');
   if (dock) makeTapButton(dock, () => { state.dock = true; });
 
@@ -230,7 +232,7 @@ export function setupTouchControls({ onGyroToggle, overRadar }) {
 // Called each frame so one-shot touch actions clear after being read.
 export function clearTouchEdges() {
   const s = ctrl.touchState;
-  if (s) { s.targetNext = false; s.dock = false; s.launchMissile = false; }
+  if (s) { s.targetNext = false; s.dock = false; s.launchMissile = false; s.ecm = false; }
 }
 
 // Keep the slider knob on the real throttle: W/S, F/R and the gamepad change

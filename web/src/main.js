@@ -10,7 +10,7 @@ import { loadAssets, SHIP_DEFS, resolveTextureName } from './assets.js';
 import {
   createGame, stepGame, launch, marketFor, buyGood, sellGood, cargoUsed,
   shipyardFor, tradeInValue, buyShip, shipName, zoomScanner,
-  SYSTEMS,
+  equipmentFor, buyEquipment, SYSTEMS,
 } from './game.js';
 import { hasSave, saveGame, loadGame, defaultStorage } from './save.js';
 import { toggleChart, closeChart, isChartOpen } from './chart.js';
@@ -212,6 +212,7 @@ function playEvents() {
     switch (ev.type) {
       case 'laser': audio.play('laser', { volume: 0.45 }); break;
       case 'missile': audio.play('missile', { volume: 0.6 }); break;
+      case 'ecm': audio.play('beep', { volume: 0.5, rate: 0.7 }); break;
       case 'hit': audio.play('hit', { volume: 0.5 }); break;
       case 'boom': audio.play('bigbang', { volume: 0.7 }); break;
       case 'beep': audio.play('beep', { volume: 0.35 }); break;
@@ -241,6 +242,17 @@ function buildMarketScreen() {
 
   const rows = marketFor(game);
   const table = el('market');
+  // Equipment sits under the commodities in the same table: the port ships two
+  // items (ECM, extra missiles) at their real equipment.plist prices.
+  const eq = equipmentFor(game).map((r) => {
+    const label = r.can ? 'BUY' : (r.key === 'EQ_MISSILE' ? 'FULL' : 'OWNED');
+    return `<tr>
+        <td>${r.name}</td>
+        <td>${r.price}</td>
+        <td colspan="2">${r.note}</td>
+        <td><button data-act="equip" data-key="${r.key}" ${r.can ? '' : 'disabled'}>${label}</button></td>
+      </tr>`;
+  }).join('');
   table.innerHTML =
     '<tr><th>Commodity</th><th>Price</th><th>Stock</th><th>Held</th><th></th></tr>' +
     rows.map((r) => {
@@ -254,7 +266,8 @@ function buildMarketScreen() {
           <button data-act="buy" data-key="${r.key}">BUY</button>
           <button data-act="sell" data-key="${r.key}" ${held ? '' : 'disabled'}>SELL</button>
         </td></tr>`;
-    }).join('');
+    }).join('') +
+    '<tr><th colspan="5">EQUIPMENT</th></tr>' + eq;
 
   buildShipyardScreen();
 }
@@ -285,6 +298,7 @@ function wireDockScreen() {
     const btn = e.target.closest('button');
     if (!btn) return;
     if (btn.dataset.act === 'buy') buyGood(game, btn.dataset.key, 1);
+    else if (btn.dataset.act === 'equip') buyEquipment(game, btn.dataset.key);
     else sellGood(game, btn.dataset.key, 1);
     playEvents();
     buildMarketScreen();
@@ -381,12 +395,13 @@ function frame(now) {
     throttle: c.throttle, throttleSet: c.throttleSet,
     fire: c.fire, injectors: c.injectors,
     targetNext: c.targetNext, dockRequest: c.dockRequest,
-    launchMissile: c.launchMissile,
+    launchMissile: c.launchMissile, ecm: c.ecm,
     jump: jumpRequested || c.jump,
   }, dt);
   c.targetNext = false;
   c.dockRequest = false;
   c.launchMissile = false;
+  c.ecm = false;
   c.jump = false;
   jumpRequested = false;
   clearTouchEdges();
@@ -445,13 +460,15 @@ async function main() {
   // Tap the radar to zoom it; the same predicate keeps the floating stick
   // grab off the radar ellipse (both listen for pointerdown).
   const overRadar = (x, y) => hud.scannerHit(x, y);
-  // MISSILE rides with the static flight buttons; created here (like CHART
-  // below) so the markup stays small — touch.js wires it by id.
-  const btnMissile = document.createElement('button');
-  btnMissile.id = 'btnMissile';
-  btnMissile.className = 'ctl';
-  btnMissile.textContent = 'MISSILE';
-  el('touch').querySelector('.buttons').insertBefore(btnMissile, el('btnFire'));
+  // MISSILE / ECM ride with the static flight buttons; created here (like
+  // CHART below) so the markup stays small — touch.js wires them by id.
+  for (const [id, label] of [['btnMissile', 'MISSILE'], ['btnEcm', 'ECM']]) {
+    const b = document.createElement('button');
+    b.id = id;
+    b.className = 'ctl';
+    b.textContent = label;
+    el('touch').querySelector('.buttons').insertBefore(b, el('btnFire'));
+  }
   setupTouchControls({ overRadar });
   window.addEventListener('pointerdown', (e) => {
     if (e.pointerType !== 'touch' || !game.hudVisible) return;

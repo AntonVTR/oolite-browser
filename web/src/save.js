@@ -42,6 +42,11 @@ function validate(data) {
   for (const f of PLAYER_FIELDS) if (!num(p[f])) return null;
   const player = { shipKey: p.shipKey, cargo: { ...p.cargo } };
   for (const f of PLAYER_FIELDS) player[f] = p[f];
+  // Equipment is optional so saves written before it existed still load.
+  player.equipment = {};
+  if (p.equipment && typeof p.equipment === 'object' && !Array.isArray(p.equipment)) {
+    for (const [k, v] of Object.entries(p.equipment)) if (v === true) player.equipment[k] = true;
+  }
   return { v: SAVE_VERSION, phase: data.phase, systemIndex: data.systemIndex, kills: data.kills, player };
 }
 
@@ -49,6 +54,7 @@ export function saveData(g) {
   const p = g.player;
   const player = { shipKey: p.shipKey, cargo: { ...p.cargo } };
   for (const f of PLAYER_FIELDS) player[f] = p[f];
+  player.equipment = { ...p.equipment };
   return { v: SAVE_VERSION, phase: g.phase, systemIndex: g.systemIndex, kills: g.kills, player };
 }
 
@@ -89,6 +95,8 @@ export function applySave(g, data) {
   g.weaponCooldown = 0;
   g.shieldCooldown = 0;
   g.dockHint = 0;
+  g.ecmTime = 0;
+  g.ecmCooldown = 0;
   if (d.phase === 'flight') {
     const st = g.station;
     g.player.pos = [st.pos[0] + 1200, st.pos[1], st.pos[2] - 2966];

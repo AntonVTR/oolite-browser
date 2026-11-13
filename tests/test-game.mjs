@@ -10,7 +10,8 @@ const { parsePlist } = await import(join(root, 'web/src/plist.js'));
 const { parseMesh } = await import(join(root, 'web/src/mesh.js'));
 const { SHIP_DEFS, resolveTextureName } = await import(join(root, 'web/src/assets.js'));
 const { createGame, stepGame, launch, marketFor, buyGood, sellGood, cargoUsed, jump, SYSTEMS,
-  spawnPirate, spawnTrader, shipyardFor, tradeInValue, buyShip, zoomScanner, launchMissile } =
+  spawnPirate, spawnTrader, shipyardFor, tradeInValue, buyShip, zoomScanner, launchMissile,
+  activateECM, equipmentFor, buyEquipment, missileCap } =
   await import(join(root, 'web/src/game.js'));
 const { Hud } = await import(join(root, 'web/src/hud.js'));
 const { distanceLy } = await import(join(root, 'web/src/galaxy.js'));
@@ -19,6 +20,7 @@ const { quatRotate } = await import(join(root, 'web/src/math.js'));
 const read = (p) => readFileSync(join(root, 'web/assets', p), 'utf8');
 const shipdata = parsePlist(read('config/shipdata.plist'));
 const shipyard = parsePlist(read('config/shipyard.plist'));
+const equipment = parsePlist(read('config/equipment.plist'));
 const parsedMeshes = {};
 for (const m of ['cobra3', 'mamba', 'krait', 'python', 'cobramk1', 'asp', 'coriolis',
   'anaconda', 'boa', 'boa-mk2', 'gecko', 'viper']) {
@@ -45,7 +47,7 @@ for (const [key, def] of Object.entries(SHIP_DEFS)) {
   for (const sub of def.subentities || []) checkTextures(sub, shipdata[sub] || entry);
 }
 
-const assets = { plists: { shipyard, shipdata }, parsedMeshes };
+const assets = { plists: { shipyard, shipdata, equipment }, parsedMeshes };
 const noInput = () => ({});
 
 const g = createGame(assets);
@@ -164,6 +166,42 @@ const kills1 = g.kills;
 for (let i = 0; i < 60; i++) stepGame(g, noInput(), 1 / 60);
 assert.strictEqual(g.player.missiles, pylon0 - 1, 'missiles are not auto-reloaded');
 assert.strictEqual(g.kills, kills1, 'nothing else died in the meantime');
+
+// ---- equipment: ECM is bought, fitted, then fires on a cooldown ------------
+g.player.credits = 100000;
+const ecmRow = equipmentFor(g).find((r) => r.key === 'EQ_ECM');
+assert.ok(ecmRow, 'the station lists the ECM');
+assert.strictEqual(ecmRow.price, 6000, 'priced from the real equipment.plist');
+assert.strictEqual(g.hasEquipment('EQ_ECM'), false, 'not fitted yet');
+assert.strictEqual(activateECM(g), false, 'the ECM refuses to fire unfitted');
+assert.ok(buyEquipment(g, 'EQ_ECM'), 'bought at the station');
+assert.strictEqual(g.hasEquipment('EQ_ECM'), true, 'fitted after the purchase');
+assert.strictEqual(g.player.credits, 94000, 'the ECM costs 6000 CR');
+assert.strictEqual(buyEquipment(g, 'EQ_ECM'), false, 'an owned ECM is not sold twice');
+
+// extra missiles go into free pylons only, at the real 300 CR
+const cap = missileCap(g);
+assert.strictEqual(cap, 4, "the cobra's real max_missiles");
+g.player.missiles = cap - 1;
+const crBefore = g.player.credits;
+assert.ok(buyEquipment(g, 'EQ_MISSILE'), 'a missile fits a free pylon');
+assert.strictEqual(g.player.missiles, cap, 'pylon filled');
+assert.strictEqual(g.player.credits, crBefore - 300, 'a missile costs 300 CR');
+assert.strictEqual(buyEquipment(g, 'EQ_MISSILE'), false, 'full pylons refuse another');
+
+// an incoming missile dies in the ECM sweep, which then goes on cooldown
+g.player.energy = g.player.maxEnergy;
+g.missiles.push({
+  pos: [g.player.pos[0] + 800, g.player.pos[1], g.player.pos[2]],
+  vel: [-100, 0, 0], target: g.player, hostile: true, life: 10,
+});
+assert.ok(activateECM(g), 'the fitted ECM fires');
+assert.ok(g.ecmTime > 0, 'and runs for its 2.5 s');
+for (let i = 0; i < 10 && g.missiles.length; i++) stepGame(g, noInput(), 1 / 60);
+assert.strictEqual(g.missiles.length, 0, 'the sweep jams the inbound missile');
+assert.ok(g.player.energy < g.player.maxEnergy, 'ECM drains energy while it runs');
+assert.strictEqual(activateECM(g), false, 'and sits on a cooldown afterwards');
+g.missiles = [];
 
 // ---- NPC roster: new ships, peaceful traders, break-off ------------------
 const distToPlayer = (e) => Math.hypot(
