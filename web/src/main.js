@@ -12,6 +12,7 @@ import {
   shipyardFor, tradeInValue, buyShip, shipName, zoomScanner,
   SYSTEMS,
 } from './game.js';
+import { hasSave, saveGame, loadGame, defaultStorage } from './save.js';
 import { mat4, mat4FromQuatPosScale, quatRotate, add, scale as vscale } from './math.js';
 
 const el = (id) => document.getElementById(id);
@@ -29,6 +30,7 @@ let stars, sphereGpu, gpu = {}, meshTex = {};
 let boomTex;
 let jumpRequested = false;
 let prevPhase = 'title';
+let storage = null; // localStorage, or null where storage is unavailable
 let lastT = performance.now();
 let fpsSmooth = 60;
 
@@ -319,6 +321,7 @@ function syncPhase() {
   if (game.phase === prevPhase) return;
   prevPhase = game.phase;
   if (game.phase === 'docked') {
+    saveGame(game, storage); // auto-save on docking
     el('touch').classList.add('hidden');
     buildMarketScreen();
     el('docked').classList.remove('hidden');
@@ -422,6 +425,7 @@ async function main() {
 
   game = createGame(assets);
   audio = new GameAudio(assets.sounds);
+  storage = defaultStorage();
 
   setupKeyboard(window);
   setupMouse(glCanvas);
@@ -435,6 +439,20 @@ async function main() {
     if (overRadar(e.clientX, e.clientY)) zoomScanner(game, 1);
   });
   wireDockScreen();
+
+  // Title screen: offer the last docked save when there is a valid one.
+  if (hasSave(storage)) {
+    const cont = document.createElement('button');
+    cont.id = 'btnContinue';
+    cont.className = 'big';
+    cont.textContent = 'CONTINUE';
+    cont.addEventListener('click', () => {
+      if (!loadGame(game, storage)) { cont.classList.add('hidden'); return; }
+      audio.unlock();
+      hideOverlays(); // title goes; syncPhase shows the restored dock/flight
+    });
+    el('title').insertBefore(cont, el('btnStart').nextSibling);
+  }
 
   window.addEventListener('keydown', (e) => {
     if (e.code === 'KeyJ') jumpRequested = true;
