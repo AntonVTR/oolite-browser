@@ -12,7 +12,8 @@ import {
   shipyardFor, tradeInValue, buyShip, shipName, zoomScanner,
   equipmentFor, buyEquipment, spawnThargoid, SYSTEMS,
 } from './game.js';
-import { hasSave, saveGame, loadGame, defaultStorage } from './save.js';
+import { hasSave, hasAnySlot, saveGame, loadGame, defaultStorage, slotInfo } from './save.js';
+import { openSlots, closeSlots } from './slots.js';
 import { toggleChart, closeChart, isChartOpen } from './chart.js';
 import { mat4, mat4FromQuatPosScale, quatRotate, add, scale as vscale } from './math.js';
 
@@ -333,6 +334,16 @@ function wireDockScreen() {
     audio.play('buy', { volume: 0.6 });
     buildMarketScreen();
   });
+  // SAVE menu next to the other station actions: three manual slots on top of
+  // the auto-save written when the ship docks.
+  const btnSave = document.createElement('button');
+  btnSave.id = 'btnSave';
+  btnSave.className = 'big';
+  btnSave.textContent = 'SAVE';
+  btnSave.addEventListener('click', () => {
+    openSlots(game, storage, { mode: 'save', onAction: playEvents });
+  });
+  el('docked').querySelector('.row').insertBefore(btnSave, el('btnLaunch'));
 }
 
 function hideOverlays() {
@@ -476,7 +487,9 @@ async function main() {
   });
   wireDockScreen();
 
-  // Title screen: offer the last docked save when there is a valid one.
+  // Title screen: offer the last docked save when there is a valid one, and a
+  // LOAD menu for the manual slots when any of them holds a game.
+  const titleAnchor = el('btnStart').nextSibling;
   if (hasSave(storage)) {
     const cont = document.createElement('button');
     cont.id = 'btnContinue';
@@ -487,7 +500,18 @@ async function main() {
       audio.unlock();
       hideOverlays(); // title goes; syncPhase shows the restored dock/flight
     });
-    el('title').insertBefore(cont, el('btnStart').nextSibling);
+    el('title').insertBefore(cont, titleAnchor);
+  }
+  if (hasAnySlot(storage)) {
+    const load = document.createElement('button');
+    load.id = 'btnLoad';
+    load.className = 'big';
+    load.textContent = 'LOAD';
+    load.addEventListener('click', () => {
+      audio.unlock();
+      openSlots(game, storage, { mode: 'load', onLoaded: hideOverlays });
+    });
+    el('title').insertBefore(load, titleAnchor);
   }
 
   // CHART button next to the other flight controls (the C key does the same).
@@ -505,7 +529,7 @@ async function main() {
     if (e.code === 'KeyJ') jumpRequested = true;
     if (e.code === 'KeyZ') zoomScanner(game, e.shiftKey ? -1 : 1); // Oolite z / Z
     if (e.code === 'KeyC') toggleChart(game, playEvents); // Oolite F is full throttle here
-    if (e.code === 'Escape') closeChart();
+    if (e.code === 'Escape') { closeChart(); closeSlots(); }
   });
 
   el('btnStart').addEventListener('click', () => {
@@ -552,6 +576,50 @@ async function main() {
     if (query.has('thargoid')) spawnThargoid(game);
     // ?chart opens the short-range chart (headless smoke test)
     if (query.has('chart')) toggleChart(game, playEvents);
+  }
+
+  // ?slots=1|2 — headless smoke for the slot menus (README "Development"):
+  // step 1 saves into slot 1 at the station and reloads to the title screen,
+  // step 2 loads that slot back. Every failure is a console.error, which the
+  // smoke run greps for.
+  const slotsStep = query.get('slots');
+  if (slotsStep === '1') {
+    let tries = 0;
+    const waitDock = setInterval(() => {
+      if (game.phase !== 'docked' && ++tries < 400) return;
+      clearInterval(waitDock);
+      if (game.phase !== 'docked') { console.error('slots smoke: never docked'); return; }
+      el('btnSave').click();
+      const tap = () => document.querySelector('#slots button[data-slot="0"]').click();
+      tap(); tap(); // arm the overwrite confirmation, then confirm it
+      const info = slotInfo(0, storage);
+      if (!info) { console.error('slots smoke: slot 1 was not written'); return; }
+      console.log(`slots smoke: saved ${SYSTEMS[info.systemIndex].name}`);
+      location.replace(`${location.pathname}?slots=2`);
+    }, 25);
+  } else if (slotsStep === '2') {
+    const btnLoad = el('btnLoad');
+    if (!btnLoad) console.error('slots smoke: no LOAD button (slot 1 missing?)');
+    else {
+      btnLoad.click();
+      const btn = document.querySelector('#slots button[data-slot="0"]');
+      if (!btn || btn.disabled) console.error('slots smoke: slot 1 not loadable');
+      else {
+        btn.click();
+        if (game.phase !== 'docked') console.error('slots smoke: load did not restore the save');
+        else console.log(`slots smoke: loaded ${SYSTEMS[game.systemIndex].name}`);
+      }
+    }
+  } else if (slotsStep === 'save' || slotsStep === 'load') {
+    // open one menu and leave it up, so a screenshot can check the layout
+    let tries = 0;
+    const t = setInterval(() => {
+      const btn = slotsStep === 'save'
+        ? (game.phase === 'docked' ? el('btnSave') : null)
+        : el('btnLoad');
+      if (btn) { clearInterval(t); btn.click(); }
+      else if (++tries > 400) { clearInterval(t); console.error(`slots smoke: no ${slotsStep} menu`); }
+    }, 25);
   }
 
   requestAnimationFrame((t) => { lastT = t; requestAnimationFrame(frame); });
