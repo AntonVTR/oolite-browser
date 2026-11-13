@@ -47,6 +47,7 @@ gyro, keyboard/mouse and gamepad.
 | Next target | `Tab` | TGT | LB / B |
 | Dock | `Enter` | DOCK | Back |
 | Jump | `J` | JUMP | Y |
+| Chart (pick jump target) | `C` | CHART | — |
 | Scanner zoom | `Z` / `Shift+Z` | tap the radar | — |
 | Gyro steering | `G` | GYRO | — |
 | Fullscreen | `F11` (browser) | FULL | — |
