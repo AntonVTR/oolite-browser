@@ -381,7 +381,9 @@ export function launch(g) {
   if (!g.entities.some((e) => e.type === 'ship' && e.hostile)) spawnPirate(g);
 }
 
-export function jump(g) {
+// selected: a system index from the short-range chart; without one the jump
+// goes to the nearest system in range, as before.
+export function jump(g, selected) {
   if (g.phase !== 'flight') return false;
   const from = SYSTEMS[g.systemIndex];
   // Oolite rule: any system within 7 ly, and the jump costs the distance in
@@ -390,14 +392,32 @@ export function jump(g) {
   const reach = Math.min(7, g.player.fuel / 10);
   let target = -1;
   let cost = 0;
-  for (let step = 1; step < SYSTEMS.length; step++) {
-    const idx = (from.index + step) % SYSTEMS.length;
-    const ly = distanceLy(from, SYSTEMS[idx]);
-    if (ly <= reach) { target = idx; cost = Math.max(1, Math.round(ly * 10)); break; }
-  }
-  if (target < 0) {
-    pushMessage(g, g.player.fuel < 70 ? 'INSUFFICIENT FUEL FOR JUMP' : 'NO SYSTEM IN RANGE', RED);
-    return false;
+  if (selected !== undefined) {
+    // Chart selection: same 7 ly ring and same fuel cost, to the chosen
+    // system instead of the nearest one.
+    const sys = SYSTEMS[selected];
+    if (!sys || sys.index === from.index) return false;
+    const ly = distanceLy(from, sys);
+    if (ly > 7) {
+      pushMessage(g, 'OUT OF JUMP RANGE', RED);
+      return false;
+    }
+    if (ly > reach) {
+      pushMessage(g, 'INSUFFICIENT FUEL FOR JUMP', RED);
+      return false;
+    }
+    target = sys.index;
+    cost = Math.max(1, Math.round(ly * 10));
+  } else {
+    for (let step = 1; step < SYSTEMS.length; step++) {
+      const idx = (from.index + step) % SYSTEMS.length;
+      const ly = distanceLy(from, SYSTEMS[idx]);
+      if (ly <= reach) { target = idx; cost = Math.max(1, Math.round(ly * 10)); break; }
+    }
+    if (target < 0) {
+      pushMessage(g, g.player.fuel < 70 ? 'INSUFFICIENT FUEL FOR JUMP' : 'NO SYSTEM IN RANGE', RED);
+      return false;
+    }
   }
   g.player.fuel -= cost;
   g.systemIndex = target;

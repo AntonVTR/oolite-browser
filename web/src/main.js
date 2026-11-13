@@ -13,6 +13,7 @@ import {
   SYSTEMS,
 } from './game.js';
 import { hasSave, saveGame, loadGame, defaultStorage } from './save.js';
+import { toggleChart, closeChart, isChartOpen } from './chart.js';
 import { mat4, mat4FromQuatPosScale, quatRotate, add, scale as vscale } from './math.js';
 
 const el = (id) => document.getElementById(id);
@@ -320,6 +321,7 @@ function hideOverlays() {
 function syncPhase() {
   if (game.phase === prevPhase) return;
   prevPhase = game.phase;
+  if (game.phase !== 'flight') closeChart(); // never leave the chart over a menu
   if (game.phase === 'docked') {
     saveGame(game, storage); // auto-save on docking
     el('touch').classList.add('hidden');
@@ -334,7 +336,8 @@ function syncPhase() {
     el('dead').classList.remove('hidden');
   } else if (game.phase === 'flight') {
     hideOverlays();
-    el('touch').classList.remove('hidden');
+    // the chart owns the screen while it is open, so the sticks stay away
+    el('touch').classList.toggle('hidden', isChartOpen());
   }
 }
 
@@ -454,9 +457,22 @@ async function main() {
     el('title').insertBefore(cont, el('btnStart').nextSibling);
   }
 
+  // CHART button next to the other flight controls (the C key does the same).
+  const btnChart = document.createElement('button');
+  btnChart.id = 'btnChart';
+  btnChart.className = 'ctl';
+  btnChart.textContent = 'CHART';
+  btnChart.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    toggleChart(game, playEvents);
+  });
+  el('touch').querySelector('.buttons').insertBefore(btnChart, el('btnFire'));
+
   window.addEventListener('keydown', (e) => {
     if (e.code === 'KeyJ') jumpRequested = true;
     if (e.code === 'KeyZ') zoomScanner(game, e.shiftKey ? -1 : 1); // Oolite z / Z
+    if (e.code === 'KeyC') toggleChart(game, playEvents); // Oolite F is full throttle here
+    if (e.code === 'Escape') closeChart();
   });
 
   el('btnStart').addEventListener('click', () => {
@@ -499,6 +515,8 @@ async function main() {
     // ?zoom=N sets the scanner zoom (headless smoke test for the radar zoom)
     const z = Number(query.get('zoom'));
     if (query.has('zoom') && z >= 1 && z <= 5) game.scannerZoom = Math.round(z);
+    // ?chart opens the short-range chart (headless smoke test)
+    if (query.has('chart')) toggleChart(game, playEvents);
   }
 
   requestAnimationFrame((t) => { lastT = t; requestAnimationFrame(frame); });
