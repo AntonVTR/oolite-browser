@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#000000">
+<title>Oolite — browser port</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="gl"></canvas>
+<canvas id="hud"></canvas>
+
+<div id="loading" class="overlay">
+  <div class="title">OOLITE</div>
+  <div class="sub">loading game data…</div>
+  <div class="bar"><div id="loading-fill"></div></div>
+  <div id="loading-label"></div>
+</div>
+
+<div id="title" class="overlay hidden">
+  <div class="title">OOLITE</div>
+  <div class="sub">a browser port of the classic space trader</div>
+  <button id="btnStart" class="big">TAP TO START</button>
+  <div class="hint">Left stick: steer &nbsp;·&nbsp; slider: throttle &nbsp;·&nbsp; GYRO: tilt to steer</div>
+</div>
+
+<div id="docked" class="overlay hidden">
+  <div class="panel">
+    <h1 id="dock-title">STATUS</h1>
+    <div id="dock-status"></div>
+    <div class="tabs">
+      <button id="tabMarket" class="tab active">MARKET</button>
+      <button id="tabShipyard" class="tab">SHIPYARD</button>
+    </div>
+    <div id="sec-market">
+      <table id="market" class="market"></table>
+    </div>
+    <div id="sec-shipyard" class="hidden">
+      <table id="yard" class="market"></table>
+      <div id="yard-note"></div>
+    </div>
+    <div class="row">
+      <button id="btnLaunch" class="big">LAUNCH</button>
+      <button id="btnRefuel" class="big">REFUEL 1.0 ly — 2 CR</button>
+    </div>
+  </div>
+</div>
+
+<div id="dead" class="overlay hidden">
+  <div class="title red">SHIP DESTROYED</div>
+  <div class="sub" id="dead-stats"></div>
+  <button id="btnRestart" class="big">TRY AGAIN</button>
+</div>
+
+<div id="touch" class="hidden">
+  <div id="stickL" class="stick"><div id="stickL-knob" class="knob"></div></div>
+  <div id="throttle" class="throttle"><div id="throttle-knob" class="knob"></div></div>
+  <div class="buttons">
+    <button id="btnRollL" class="ctl">⟲</button>
+    <button id="btnRollR" class="ctl">⟳</button>
+    <button id="btnTarget" class="ctl">TGT</button>
+    <button id="btnJump" class="ctl">JUMP</button>
+    <button id="btnDock" class="ctl">DOCK</button>
+    <button id="btnInjectors" class="ctl">BOOST</button>
+    <button id="btnGyro" class="ctl">GYRO</button>
+    <button id="btnFull" class="ctl">FULL</button>
+    <button id="btnFire" class="ctl fire">FIRE</button>
+  </div>
+</div>
+
+<script type="module" src="src/main.js"></script>
+</body>
+</html>
