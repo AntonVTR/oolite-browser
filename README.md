@@ -27,13 +27,26 @@ gyro, keyboard/mouse and gamepad.
   zooms the scanner. Gyro tilt steering with the iOS permission gesture,
   keyboard, mouse and gamepad.
 
-## Not ported yet (P1/P2)
+## Also ported (P2)
 
-- Full Oolite galaxy generation, system descriptions and the full 256-system
-  map — this build ships a fixed 8-system circuit (classic Elite names).
-- Equipment / shipyard / missions / AI scripting (`.js` ship AIs) and the
-  remaining ship roster.
-- Cockpit view, sun/planet textures (the planet is flat-shaded), wormholes.
+- **Missiles**: `M` / MISSILE / Start fires one at the locked target; it
+  tracks, hits and explodes on the real shipdata numbers (750 m/s, 25 m fuse,
+  blastPower 180). Hostile ships loose their own at you.
+- **ECM**: buy the E.C.M. System, fire it with `X` / ECM — four pulses sweep
+  out to 25.6 km over 2.5 s and detonate incoming missiles, drain energy, then
+  rest for 5 s. Extra missiles (300 CR) fill free pylons.
+- **Thargoid warship** on its real mesh and texture: hostile, fast, it never
+  breaks off and shoots missiles often. The Constrictor and the Adder join the
+  pirate and trader rosters — 14 ship types in the sky now.
+
+## Not ported yet
+
+- Mission scripts from `Resources/Scripts/*.js` — skipped: they need Oolite's
+  own JavaScript engine (ship/player host objects, mission variables, priority
+  AI), which this port does not have.
+- 39 of the 41 equipment types (only E.C.M. and missiles are modelled), ship
+  AI scripts (`.js`), mines, cloak, escape pod, missile-vs-missile interception.
+- Cockpit view, real sun/planet textures (both are shaded spheres), wormholes.
 
 ## Controls
 
@@ -44,6 +57,8 @@ gyro, keyboard/mouse and gamepad.
 | Throttle | `W` / `S`, `F` full, `R` stop | slider (top-right) | right stick Y / D-pad ↑ ↓ |
 | Injectors (boost) | `I` | BOOST | LT / RB / X |
 | Fire | `Space` / left mouse | FIRE | RT / A |
+| Launch missile | `M` | MISSILE | Start |
+| ECM (jam missiles) | `X` | ECM | — |
 | Next target | `Tab` | TGT | LB / B |
 | Dock | `Enter` | DOCK | Back |
 | Jump | `J` | JUMP | Y |
@@ -53,10 +68,12 @@ gyro, keyboard/mouse and gamepad.
 | Fullscreen | `F11` (browser) | FULL | — |
 
 Docking: fly within 400 m of the station at under 120 m/s (or press DOCK under
-1500 m). The station screen has two tabs: **Market** (six commodities) and
-**Shipyard** (eleven hulls with real `shipyard.plist` prices; your current ship
-is traded in at ~71% of its price, cargo is sold off automatically, and a
-bought hull leaves the stock for good). Refuel from the same screen.
+1500 m). The station screen has two tabs: **Market** (six commodities plus an
+**Equipment** section — the E.C.M. System for 6 000 CR and extra missiles for
+300 CR each, up to the hull's pylon count) and **Shipyard** (eleven hulls with
+real `shipyard.plist` prices; your current ship is traded in at ~71% of its
+price, cargo is sold off automatically, and a bought hull leaves the stock for
+good). Refuel from the same screen.
 
 ## Development
 
@@ -69,6 +86,9 @@ python3 -m http.server 8099 --directory web   # local server
 # headless smoke test (console errors + screenshots):
 google-chrome --headless=new --virtual-time-budget=6000 --screenshot=/tmp/shot.png \
   'http://127.0.0.1:8099/?autostart=1'
+# ...with the thargoid warship parked ahead of the nose:
+google-chrome --headless=new --virtual-time-budget=1500 --screenshot=/tmp/thargoid.png \
+  'http://127.0.0.1:8099/?autostart=1&thargoid=1'
 ```
 
 `tools/copy-assets.sh` copies the used subset of `upstream/Resources` into

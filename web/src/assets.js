@@ -16,9 +16,11 @@ export const SHIP_DEFS = {
   anaconda: { shipKey: 'oolite_template_anaconda', model: 'oolite_anaconda' },
   boa: { shipKey: 'oolite_template_boa', model: 'oolite_boa' },
   'boa-mk2': { shipKey: 'oolite_template_boa-mk2', model: 'oolite_boa-mk2' },
+  adder: { shipKey: 'oolite_template_adder', model: 'oolite_adder' },
   // fighters — spawned as hostile pirates
   gecko: { shipKey: 'oolite_template_gecko', model: 'oolite_gecko' },
   viper: { shipKey: 'oolite_template_viper', model: 'oolite_viper' },
+  constrictor: { shipKey: 'oolite_template_constrictor', model: 'oolite_constrictor' },
   // the hostile alien, with its real warship mesh and hull texture
   thargoid: { shipKey: 'oolite_template_thargoid', model: 'oolite_thargoid' },
   coriolis: {

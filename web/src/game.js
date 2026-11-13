@@ -34,8 +34,8 @@ const YELLOW = [1, 1, 0];
 // NPC rosters: combat ships hunt as hostile pirates, heavy haulers cross
 // space in peace. Speed / turn / energy / bounty come from the real shipdata
 // through def() below, so the heavy ships really are slow and tough.
-const PIRATE_KEYS = ['mamba', 'krait', 'cobramk1', 'asp', 'gecko', 'viper'];
-const TRADER_KEYS = ['python', 'anaconda', 'boa', 'boa-mk2'];
+const PIRATE_KEYS = ['mamba', 'krait', 'cobramk1', 'asp', 'gecko', 'viper', 'constrictor'];
+const TRADER_KEYS = ['python', 'anaconda', 'boa', 'boa-mk2', 'adder'];
 
 function shipData(g, key) { return g.shipdata[key]; }
 // Ship stats live in templates. Player hulls are thin layers over the real

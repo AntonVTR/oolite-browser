@@ -23,7 +23,7 @@ const shipyard = parsePlist(read('config/shipyard.plist'));
 const equipment = parsePlist(read('config/equipment.plist'));
 const parsedMeshes = {};
 for (const m of ['cobra3', 'mamba', 'krait', 'python', 'cobramk1', 'asp', 'coriolis',
-  'anaconda', 'boa', 'boa-mk2', 'gecko', 'viper', 'thargoid']) {
+  'anaconda', 'boa', 'boa-mk2', 'gecko', 'viper', 'thargoid', 'constrictor', 'adder']) {
   parsedMeshes[m] = parseMesh(read(`models/oolite_${m}.dat`));
 }
 for (const s of ['faceplate', 'tris', 'dock']) {
@@ -232,9 +232,9 @@ const distToPlayer = (e) => Math.hypot(
 // traders rotate through every heavy hauler and never turn hostile
 g.entities = g.entities.filter((e) => e.type === 'station');
 const seenTraders = new Set();
-for (let i = 0; i < 8; i++) seenTraders.add(spawnTrader(g).shipKey);
-assert.deepStrictEqual([...seenTraders].sort(), ['anaconda', 'boa', 'boa-mk2', 'python'],
-  'trader rotation covers the heavy haulers');
+for (let i = 0; i < 10; i++) seenTraders.add(spawnTrader(g).shipKey);
+assert.deepStrictEqual([...seenTraders].sort(), ['adder', 'anaconda', 'boa', 'boa-mk2', 'python'],
+  'trader rotation covers the peaceful ships');
 assert.ok(g.entities.filter((e) => e.role === 'trader').every((e) => !e.hostile),
   'heavy traders spawn non-hostile');
 for (let i = 0; i < 120; i++) stepGame(g, noInput(), 1 / 60);
@@ -261,14 +261,17 @@ assert.ok(!g.entities.includes(anaconda), 'anaconda wreck removed');
 g.entities = g.entities.filter((e) => e.type === 'station');
 const seenPirates = new Set();
 const pirates = [];
-for (let i = 0; i < 6; i++) { const s = spawnPirate(g); pirates.push(s); seenPirates.add(s.shipKey); }
-assert.deepStrictEqual([...seenPirates].sort(), ['asp', 'cobramk1', 'gecko', 'krait', 'mamba', 'viper'],
+for (let i = 0; i < 7; i++) { const s = spawnPirate(g); pirates.push(s); seenPirates.add(s.shipKey); }
+assert.deepStrictEqual([...seenPirates].sort(),
+  ['asp', 'cobramk1', 'constrictor', 'gecko', 'krait', 'mamba', 'viper'],
   'pirate rotation covers the combat ships');
 assert.ok(pirates.every((s) => s.hostile && s.role === 'pirate' && s.bounty > 0),
   'combat ships spawn hostile with a real bounty');
 for (const s of pirates) {
-  assert.strictEqual(s.bounty, Math.round(shipdata[`oolite_template_${s.shipKey}`].max_energy / 5),
-    `${s.shipKey} bounty derived from the real shipdata max_energy`);
+  const tpl = shipdata[`oolite_template_${s.shipKey}`];
+  // ships with an explicit shipdata bounty keep it (the constrictor's 250)
+  const want = tpl.bounty || Math.round(tpl.max_energy / 5);
+  assert.strictEqual(s.bounty, want, `${s.shipKey} bounty from the real shipdata`);
 }
 g.entities = g.entities.filter((e) => e.type === 'station');
 
