@@ -75,6 +75,14 @@ real `shipyard.plist` prices; your current ship is traded in at ~71% of its
 price, cargo is sold off automatically, and a bought hull leaves the stock for
 good). Refuel from the same screen.
 
+**Save / load**: docking still writes the auto-save that **CONTINUE** on the
+title screen loads. On top of that, the station screen has a **SAVE** button
+next to LAUNCH and the title screen a **LOAD** button next to CONTINUE — both
+open a three-slot menu. Each row shows what is in the slot (system, credits,
+phase, kills) or `empty`; an occupied slot needs a second tap (**CONFIRM**)
+before it is overwritten, and a slot holding an old or corrupt save reads as
+empty, so it can only be replaced, never loaded. `Esc` closes either menu.
+
 ## Development
 
 ```bash
@@ -82,6 +90,7 @@ node tests/test-parsers.mjs   # plist + .dat mesh parsers
 node tests/test-game.mjs      # headless gameplay: launch, combat, market, shipyard, jump, death
 node tests/test-view.mjs      # camera / coordinate-frame convention
 node tests/test-touch.mjs     # double-tap zoom guard
+node tests/test-save.mjs      # auto-save round trip, bad saves rejected, manual slots
 python3 -m http.server 8099 --directory web   # local server
 # headless smoke test (console errors + screenshots):
 google-chrome --headless=new --virtual-time-budget=6000 --screenshot=/tmp/shot.png \
@@ -89,6 +98,12 @@ google-chrome --headless=new --virtual-time-budget=6000 --screenshot=/tmp/shot.p
 # ...with the thargoid warship parked ahead of the nose:
 google-chrome --headless=new --virtual-time-budget=1500 --screenshot=/tmp/thargoid.png \
   'http://127.0.0.1:8099/?autostart=1&thargoid=1'
+# save-at-station → load-from-title smoke: expect exactly the two "slots smoke:"
+# logs and no ERROR:CONSOLE line (WebGL/AudioContext notices are pre-existing):
+google-chrome --headless=new --enable-logging=stderr --virtual-time-budget=20000 \
+  --user-data-dir=/tmp/oolite-slots-smoke --screenshot=/tmp/slots.png \
+  'http://127.0.0.1:8099/?autostart=1&dock=1&slots=1' 2>&1 | grep CONSOLE
+# ?slots=save / ?slots=load open one menu and leave it up for a screenshot
 ```
 
 `tools/copy-assets.sh` copies the used subset of `upstream/Resources` into
