@@ -14,6 +14,7 @@ const { quatRotate } = await import(join(root, 'web/src/math.js'));
 const {
   saveData, serializeSave, parseSave, applySave, saveGame, loadGame, hasSave,
   defaultStorage, SAVE_KEY, SAVE_VERSION,
+  SLOT_COUNT, slotInfo, saveSlot, loadSlot, hasAnySlot,
 } = await import(join(root, 'web/src/save.js'));
 
 const read = (p) => readFileSync(join(root, 'web/assets', p), 'utf8');
@@ -151,5 +152,60 @@ const credits0 = untouched.player.credits;
 assert.strictEqual(loadGame(untouched, store), false);
 assert.strictEqual(untouched.phase, 'title');
 assert.strictEqual(untouched.player.credits, credits0, 'game untouched');
+
+// ---- manual slots (SAVE on the station, LOAD on the title) -----------------
+assert.strictEqual(SLOT_COUNT, 3);
+assert.strictEqual(hasAnySlot(store), false, 'no slot filled yet');
+for (let i = 0; i < SLOT_COUNT; i++) {
+  assert.strictEqual(slotInfo(i, store), null, `slot ${i} starts empty`);
+}
+
+assert.strictEqual(saveSlot(g, 0, store), true, 'docked game saves into a slot');
+assert.strictEqual(hasAnySlot(store), true, 'the LOAD button has something to show');
+const info = slotInfo(0, store);
+assert.strictEqual(info.systemIndex, 42);
+assert.strictEqual(info.phase, 'docked');
+assert.strictEqual(info.credits, g.player.credits);
+assert.strictEqual(info.kills, g.kills);
+assert.strictEqual(slotInfo(1, store), null, 'the other slots stay empty');
+
+// a slot loads back into a fresh game
+const fromSlot = newGame();
+assert.strictEqual(loadSlot(fromSlot, 0, store), true);
+assert.strictEqual(fromSlot.phase, 'docked');
+assert.strictEqual(fromSlot.systemIndex, 42);
+assert.strictEqual(fromSlot.player.credits, g.player.credits);
+assert.deepStrictEqual(fromSlot.player.cargo, g.player.cargo);
+
+// overwrite: a second save replaces what the slot held
+const other = newGame();
+launch(other);
+other.player.credits = 1234.5;
+other.systemIndex = 7;
+assert.strictEqual(saveSlot(other, 0, store), true, 'a filled slot is overwritten');
+assert.strictEqual(slotInfo(0, store).credits, 1234.5);
+assert.strictEqual(slotInfo(0, store).systemIndex, 7);
+
+// guards: bad index, no storage, a game at the title screen
+assert.strictEqual(saveSlot(g, -1, store), false);
+assert.strictEqual(saveSlot(g, SLOT_COUNT, store), false);
+assert.strictEqual(loadSlot(newGame(), 9, store), false);
+assert.strictEqual(slotInfo(-1, store), null);
+assert.strictEqual(saveSlot(g, 1, null), false);
+assert.strictEqual(loadSlot(newGame(), 1, null), false);
+assert.strictEqual(hasAnySlot(null), false);
+assert.strictEqual(saveSlot(atTitle, 1, store), false, 'a title game is never saved');
+assert.strictEqual(slotInfo(1, store), null, 'the failed save left no trace');
+
+// a corrupt slot fails safe: unreadable and unloadable, but overwritable
+store.setItem(`${SAVE_KEY}.slot1`, '{corrupt');
+assert.strictEqual(slotInfo(1, store), null, 'corrupt slot reads as empty');
+assert.strictEqual(loadSlot(newGame(), 1, store), false);
+assert.strictEqual(loadSlot(untouched, 1, store), false);
+assert.strictEqual(untouched.player.credits, credits0, 'game untouched by a corrupt slot');
+assert.strictEqual(saveSlot(g, 1, store), true, 'a corrupt slot can be overwritten');
+assert.strictEqual(slotInfo(1, store).systemIndex, 42);
+assert.strictEqual(hasAnySlot(store), true);
+assert.strictEqual(hasSave(store), false, 'the corrupt auto-save is still refused');
 
 console.log('save: all checks passed');

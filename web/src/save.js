@@ -11,6 +11,12 @@ import { spawnPirate, spawnTrader } from './game.js';
 export const SAVE_KEY = 'oolite-browser.save';
 export const SAVE_VERSION = 1;
 
+// Manual saves live in a handful of slots next to the auto-save; the menus
+// (slots.js) show one row per slot and never load one that fails validation.
+export const SLOT_COUNT = 3;
+const slotKey = (i) => `${SAVE_KEY}.slot${i}`;
+const validSlot = (i) => Number.isInteger(i) && i >= 0 && i < SLOT_COUNT;
+
 // Player fields the save carries. Ship stats travel as they stand instead of
 // being re-derived from shipKey: the game itself wrote them (buyShip does the
 // same derivation), so they cannot drift from what was flown.
@@ -146,4 +152,54 @@ export function hasSave(storage = defaultStorage()) {
   } catch (e) {
     return false;
   }
+}
+
+// ---- manual slots ----------------------------------------------------------
+// What a slot holds, for the SAVE/LOAD menus: null when it is empty, corrupt
+// or out of range — a bad slot reads as empty, so it can only be overwritten,
+// never loaded.
+
+export function slotInfo(i, storage = defaultStorage()) {
+  if (!storage || !validSlot(i)) return null;
+  try {
+    const d = parseSave(storage.getItem(slotKey(i)));
+    if (!d) return null;
+    return {
+      phase: d.phase,
+      systemIndex: d.systemIndex,
+      kills: d.kills,
+      credits: d.player.credits,
+    };
+  } catch (e) {
+    return null;
+  }
+}
+
+export function saveSlot(g, i, storage = defaultStorage()) {
+  if (!storage || !validSlot(i)) return false;
+  if (g.phase !== 'flight' && g.phase !== 'docked') return false;
+  try {
+    storage.setItem(slotKey(i), serializeSave(g));
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+export function loadSlot(g, i, storage = defaultStorage()) {
+  if (!storage || !validSlot(i)) return false;
+  let text = null;
+  try {
+    text = storage.getItem(slotKey(i));
+  } catch (e) {
+    return false;
+  }
+  const d = parseSave(text);
+  return d ? applySave(g, d) : false;
+}
+
+// The title screen shows LOAD only when some slot can actually be loaded.
+export function hasAnySlot(storage = defaultStorage()) {
+  for (let i = 0; i < SLOT_COUNT; i++) if (slotInfo(i, storage)) return true;
+  return false;
 }
