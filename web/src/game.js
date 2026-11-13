@@ -156,6 +156,16 @@ export function spawnTrader(g) {
   return s;
 }
 
+export function spawnThargoid(g) {
+  const d = def(g, 'thargoid');
+  const s = makeShip(g, 'thargoid', spawnAhead(g, 900, 2600), [0, 0, 0, 1],
+    { hostile: true, bounty: d.bounty || 100, role: 'thargoid' });
+  s.think = Math.random();
+  s.missileCd = 8 + Math.random() * 12; // alien warships shoot missiles early
+  g.entities.push(s);
+  return s;
+}
+
 // ---------------------------------------------------------------------------
 export function createGame(assets) {
   const g = {
@@ -722,8 +732,10 @@ function updateNPC(e, g, dt) {
     return;
   }
 
-  // Badly damaged hostiles may break off instead of fighting to the death.
-  if (e.hostile && !e.breakingOff && e.energy <= e.maxEnergy * (e.breakOffAt || 0.08)) {
+  // Badly damaged hostiles may break off instead of fighting to the death —
+  // never a thargoid: the alien warship fights to the last hull.
+  if (e.hostile && e.role !== 'thargoid' && !e.breakingOff
+      && e.energy <= e.maxEnergy * (e.breakOffAt || 0.08)) {
     e.breakingOff = true;
     pushMessage(g, `${String(e.name || e.shipKey).toUpperCase()} BREAKING OFF`, BLUE, 4);
   }
@@ -775,9 +787,10 @@ function updateNPC(e, g, dt) {
   if (e.missileCd === undefined) e.missileCd = 15 + Math.random() * 25;
   e.missileCd -= dt;
   if (e.missileCd <= 0) {
-    e.missileCd = 25 + Math.random() * 30;
+    e.missileCd = e.role === 'thargoid' ? 18 + Math.random() * 15 : 25 + Math.random() * 30;
     const inbound = g.missiles.reduce((n, m) => n + (m.hostile ? 1 : 0), 0);
-    if (d < 6000 && d > 200 && inbound < 2 && p.alive && Math.random() < 0.5) {
+    const shoots = e.role === 'thargoid' || Math.random() < 0.5;
+    if (d < 6000 && d > 200 && inbound < 2 && p.alive && shoots) {
       launchMissileAt(g, e, p, true);
     }
   }
@@ -876,7 +889,8 @@ export function stepGame(g, input, dt) {
   if (g.spawnTimer <= 0 && pirates < 2) {
     g.spawnTimer = 12;
     if (pirates === 0) spawnPirate(g);
-    else if (Math.random() < 0.6) spawnPirate(g);
+    // one hostile in three is the alien instead of a pirate
+    else if (Math.random() < 0.6) (Math.random() < 0.33 ? spawnThargoid(g) : spawnPirate(g));
     if (!g.entities.some((e) => e.role === 'trader') && Math.random() < 0.5) spawnTrader(g);
   }
 

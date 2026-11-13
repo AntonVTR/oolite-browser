@@ -10,7 +10,7 @@ import { loadAssets, SHIP_DEFS, resolveTextureName } from './assets.js';
 import {
   createGame, stepGame, launch, marketFor, buyGood, sellGood, cargoUsed,
   shipyardFor, tradeInValue, buyShip, shipName, zoomScanner,
-  equipmentFor, buyEquipment, SYSTEMS,
+  equipmentFor, buyEquipment, spawnThargoid, SYSTEMS,
 } from './game.js';
 import { hasSave, saveGame, loadGame, defaultStorage } from './save.js';
 import { toggleChart, closeChart, isChartOpen } from './chart.js';
@@ -548,6 +548,8 @@ async function main() {
     // ?zoom=N sets the scanner zoom (headless smoke test for the radar zoom)
     const z = Number(query.get('zoom'));
     if (query.has('zoom') && z >= 1 && z <= 5) game.scannerZoom = Math.round(z);
+    // ?thargoid puts the alien warship ahead of the nose (headless smoke test)
+    if (query.has('thargoid')) spawnThargoid(game);
     // ?chart opens the short-range chart (headless smoke test)
     if (query.has('chart')) toggleChart(game, playEvents);
   }

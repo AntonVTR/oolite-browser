@@ -19,6 +19,8 @@ export const SHIP_DEFS = {
   // fighters — spawned as hostile pirates
   gecko: { shipKey: 'oolite_template_gecko', model: 'oolite_gecko' },
   viper: { shipKey: 'oolite_template_viper', model: 'oolite_viper' },
+  // the hostile alien, with its real warship mesh and hull texture
+  thargoid: { shipKey: 'oolite_template_thargoid', model: 'oolite_thargoid' },
   coriolis: {
     shipKey: 'oolite_template_coriolis-station',
     model: 'oolite_coriolis',

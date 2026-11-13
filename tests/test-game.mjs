@@ -10,8 +10,8 @@ const { parsePlist } = await import(join(root, 'web/src/plist.js'));
 const { parseMesh } = await import(join(root, 'web/src/mesh.js'));
 const { SHIP_DEFS, resolveTextureName } = await import(join(root, 'web/src/assets.js'));
 const { createGame, stepGame, launch, marketFor, buyGood, sellGood, cargoUsed, jump, SYSTEMS,
-  spawnPirate, spawnTrader, shipyardFor, tradeInValue, buyShip, zoomScanner, launchMissile,
-  activateECM, equipmentFor, buyEquipment, missileCap } =
+  spawnPirate, spawnTrader, spawnThargoid, shipyardFor, tradeInValue, buyShip, zoomScanner,
+  launchMissile, activateECM, equipmentFor, buyEquipment, missileCap } =
   await import(join(root, 'web/src/game.js'));
 const { Hud } = await import(join(root, 'web/src/hud.js'));
 const { distanceLy } = await import(join(root, 'web/src/galaxy.js'));
@@ -23,7 +23,7 @@ const shipyard = parsePlist(read('config/shipyard.plist'));
 const equipment = parsePlist(read('config/equipment.plist'));
 const parsedMeshes = {};
 for (const m of ['cobra3', 'mamba', 'krait', 'python', 'cobramk1', 'asp', 'coriolis',
-  'anaconda', 'boa', 'boa-mk2', 'gecko', 'viper']) {
+  'anaconda', 'boa', 'boa-mk2', 'gecko', 'viper', 'thargoid']) {
   parsedMeshes[m] = parseMesh(read(`models/oolite_${m}.dat`));
 }
 for (const s of ['faceplate', 'tris', 'dock']) {
@@ -202,6 +202,27 @@ assert.strictEqual(g.missiles.length, 0, 'the sweep jams the inbound missile');
 assert.ok(g.player.energy < g.player.maxEnergy, 'ECM drains energy while it runs');
 assert.strictEqual(activateECM(g), false, 'and sits on a cooldown afterwards');
 g.missiles = [];
+
+// ---- thargoid: the alien warship joins the fight ---------------------------
+g.entities = g.entities.filter((e) => e.type === 'station');
+const alien = spawnThargoid(g);
+assert.strictEqual(alien.shipKey, 'thargoid', 'thargoid spawns from its own template');
+assert.ok(alien.hostile && alien.role === 'thargoid', 'and is hostile');
+assert.strictEqual(alien.name, 'Thargoid Warship', 'real shipdata name');
+assert.strictEqual(alien.maxSpeed, 500, 'real shipdata max_flight_speed');
+assert.strictEqual(alien.maxEnergy, 600, 'real shipdata max_energy');
+assert.strictEqual(alien.bounty, 100, 'real shipdata bounty');
+assert.strictEqual(alien.radius, parsedMeshes.thargoid.bbox.radius, 'radius from the real mesh');
+// it attacks on sight…
+alien.pos = [g.player.pos[0], g.player.pos[1], g.player.pos[2] + 1200];
+alien.quat = [0, 1, 0, 0]; // turned to face the player
+alien.energy = alien.maxEnergy;
+stepGame(g, noInput(), 1 / 60);
+assert.ok(g.shots.some((s) => s.hostile), 'the thargoid returns fire');
+// …and never runs, however badly hurt
+alien.energy = 1;
+stepGame(g, noInput(), 1 / 60);
+assert.strictEqual(alien.breakingOff, undefined, 'thargoids fight to the death');
 
 // ---- NPC roster: new ships, peaceful traders, break-off ------------------
 const distToPlayer = (e) => Math.hypot(
