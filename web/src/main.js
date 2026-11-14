@@ -10,11 +10,12 @@ import { loadAssets, SHIP_DEFS, resolveTextureName } from './assets.js';
 import {
   createGame, stepGame, launch, marketFor, buyGood, sellGood, cargoUsed,
   shipyardFor, tradeInValue, buyShip, shipName, zoomScanner,
-  equipmentFor, buyEquipment, spawnThargoid, SYSTEMS,
+  equipmentFor, buyEquipment, spawnThargoid, SYSTEMS, rankName, legalStatus,
 } from './game.js';
 import { hasSave, hasAnySlot, saveGame, loadGame, defaultStorage, slotInfo } from './save.js';
 import { openSlots, closeSlots } from './slots.js';
 import { toggleChart, closeChart, isChartOpen } from './chart.js';
+import { toggleStatus, closeStatus, isStatusOpen } from './status.js';
 import { mat4, mat4FromQuatPosScale, quatRotate, add, scale as vscale } from './math.js';
 
 const el = (id) => document.getElementById(id);
@@ -237,7 +238,8 @@ function buildMarketScreen() {
   el('dock-status').textContent =
     `Credits: ${p.credits.toFixed(1)} CR\n` +
     `Fuel: ${(p.fuel / 10).toFixed(1)} ly   Cargo: ${used}/${p.maxCargo} t\n` +
-    `Kills: ${game.kills}\n` +
+    `Kills: ${game.kills}   Rating: ${rankName(game.kills)}\n` +
+    `Legal status: ${legalStatus(game.crime)}\n` +
     `${sys.description}\n` +
     `Cargo hold:\n${cargoLines}`;
 
@@ -353,7 +355,7 @@ function hideOverlays() {
 function syncPhase() {
   if (game.phase === prevPhase) return;
   prevPhase = game.phase;
-  if (game.phase !== 'flight') closeChart(); // never leave the chart over a menu
+  if (game.phase !== 'flight') { closeChart(); closeStatus(); } // never leave a screen over a menu
   if (game.phase === 'docked') {
     saveGame(game, storage); // auto-save on docking
     el('touch').classList.add('hidden');
@@ -363,13 +365,13 @@ function syncPhase() {
     el('touch').classList.add('hidden');
     audio.stopEngine();
     el('dead-stats').textContent =
-      `Credits ${game.player.credits.toFixed(1)} CR · Kills ${game.kills} · ` +
+      `Credits ${game.player.credits.toFixed(1)} CR · Kills ${game.kills} (${rankName(game.kills)}) · ` +
       `Reached ${SYSTEMS[game.systemIndex].name}`;
     el('dead').classList.remove('hidden');
   } else if (game.phase === 'flight') {
     hideOverlays();
-    // the chart owns the screen while it is open, so the sticks stay away
-    el('touch').classList.toggle('hidden', isChartOpen());
+    // the chart or the status screen owns the screen, so the sticks stay away
+    el('touch').classList.toggle('hidden', isChartOpen() || isStatusOpen());
   }
 }
 
@@ -514,6 +516,12 @@ async function main() {
     el('title').insertBefore(load, titleAnchor);
   }
 
+  // The chart and the status screen both own the flight screen, so opening
+  // one closes the other — keys, the two buttons and ?chart/?status all
+  // route through these.
+  const toggleChartUI = () => { closeStatus(); toggleChart(game, playEvents); };
+  const toggleStatusUI = () => { closeChart(); toggleStatus(game); };
+
   // CHART button next to the other flight controls (the C key does the same).
   const btnChart = document.createElement('button');
   btnChart.id = 'btnChart';
@@ -521,15 +529,28 @@ async function main() {
   btnChart.textContent = 'CHART';
   btnChart.addEventListener('pointerdown', (e) => {
     e.preventDefault();
-    toggleChart(game, playEvents);
+    toggleChartUI();
   });
   el('touch').querySelector('.buttons').insertBefore(btnChart, el('btnFire'));
 
+  // STATUS button beside it (the 5 key does the same).
+  const btnStatus = document.createElement('button');
+  btnStatus.id = 'btnStatus';
+  btnStatus.className = 'ctl';
+  btnStatus.textContent = 'STATUS';
+  btnStatus.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    toggleStatusUI();
+  });
+  el('touch').querySelector('.buttons').insertBefore(btnStatus, el('btnFire'));
+
   window.addEventListener('keydown', (e) => {
+    if (e.repeat) return; // one press, one action — holding C must not flicker the chart
     if (e.code === 'KeyJ') jumpRequested = true;
     if (e.code === 'KeyZ') zoomScanner(game, e.shiftKey ? -1 : 1); // Oolite z / Z
-    if (e.code === 'KeyC') toggleChart(game, playEvents); // Oolite F is full throttle here
-    if (e.code === 'Escape') { closeChart(); closeSlots(); }
+    if (e.code === 'KeyC') toggleChartUI(); // Oolite F is full throttle here
+    if (e.code === 'Digit5') toggleStatusUI(); // Oolite's status-screen key
+    if (e.code === 'Escape') { closeChart(); closeStatus(); closeSlots(); }
   });
 
   el('btnStart').addEventListener('click', () => {
@@ -575,7 +596,9 @@ async function main() {
     // ?thargoid puts the alien warship ahead of the nose (headless smoke test)
     if (query.has('thargoid')) spawnThargoid(game);
     // ?chart opens the short-range chart (headless smoke test)
-    if (query.has('chart')) toggleChart(game, playEvents);
+    if (query.has('chart')) toggleChartUI();
+    // ?status opens the in-flight status screen (headless smoke test)
+    if (query.has('status')) toggleStatusUI();
   }
 
   // ?slots=1|2 — headless smoke for the slot menus (README "Development"):

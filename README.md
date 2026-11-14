@@ -22,6 +22,12 @@ gyro, keyboard/mouse and gamepad.
   dock → buy/sell commodities → trade your ship in at the shipyard → refuel →
   witchspace jump to the next system → repeat. Credits, cargo hold, bounty
   rewards, shields, laser heat, death.
+- **Combat rating and legal status**: kills advance you Harmless → Elite on
+  the original's kill thresholds, crimes (firing on innocents in the station's
+  protection zone, killing traders or police) make the Vipers hunt you as the
+  police, and legal status runs Clear → Offender → Fugitive — shown on the
+  status screen (`5` / STATUS while flying) and at the station. Docking
+  clears the record.
 - **Controls**: virtual stick + throttle + buttons (touch) — the stick floats:
   touch anywhere in the left half to grab it where your finger lands; radar tap
   zooms the scanner. Gyro tilt steering with the iOS permission gesture,
@@ -63,6 +69,7 @@ gyro, keyboard/mouse and gamepad.
 | Dock | `Enter` | DOCK | Back |
 | Jump | `J` | JUMP | Y |
 | Chart (pick jump target) | `C` | CHART | — |
+| Status screen (in flight) | `5` | STATUS | — |
 | Scanner zoom | `Z` / `Shift+Z` | tap the radar | — |
 | Gyro steering | `G` | GYRO | — |
 | Fullscreen | `F11` (browser) | FULL | — |
@@ -88,6 +95,7 @@ empty, so it can only be replaced, never loaded. `Esc` closes either menu.
 ```bash
 node tests/test-parsers.mjs   # plist + .dat mesh parsers
 node tests/test-game.mjs      # headless gameplay: launch, combat, market, shipyard, jump, death
+node tests/test-status.mjs    # status screen rows: system, fuel, cash, legal status, rating
 node tests/test-view.mjs      # camera / coordinate-frame convention
 node tests/test-touch.mjs     # double-tap zoom guard
 node tests/test-save.mjs      # auto-save round trip, bad saves rejected, manual slots

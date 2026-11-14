@@ -4,7 +4,7 @@
 // CSS needed) because index.html and style.css are outside this change's
 // scope, and nothing here touches the document until a menu is opened.
 
-import { SYSTEMS } from './game.js';
+import { SYSTEMS, rankName } from './game.js';
 import { SLOT_COUNT, slotInfo, saveSlot, loadSlot } from './save.js';
 
 let overlay = null;
@@ -50,7 +50,7 @@ function render() {
     const info = slotInfo(i, storageRef);
     const contents = info
       ? `${SYSTEMS[info.systemIndex].name} · ${info.credits.toFixed(1)} CR · ` +
-        `${info.phase.toUpperCase()} · ${info.kills} kills`
+        `${info.phase.toUpperCase()} · ${info.kills} kills · ${rankName(info.kills)}`
       : 'empty';
     const action = saving
       ? `<button data-slot="${i}">${info ? (armed === i ? 'CONFIRM' : 'OVERWRITE') : 'SAVE'}</button>`
