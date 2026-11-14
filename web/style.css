@@ -96,6 +96,10 @@ button:disabled { opacity: 0.4; cursor: default; }
 .market th, .market td { padding: 7px 6px; border-bottom: 1px solid rgba(0,255,100,0.18); text-align: right; }
 .market th:first-child, .market td:first-child { text-align: left; }
 .market th { color: #2f6; font-weight: normal; }
+.market .ill {
+  color: #f66; font-size: 0.7em; letter-spacing: 0.04em;
+  margin-left: 5px; white-space: nowrap;
+}
 .market button { padding: 5px 12px; font-size: 13px; margin-left: 4px; }
 #yard-note { margin-top: 10px; font-size: clamp(12px, 3.4vw, 15px); color: #4f8; opacity: 0.9; }
 .row { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-top: 20px; }

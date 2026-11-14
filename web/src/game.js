@@ -38,6 +38,9 @@ function goodsFrom(plist) {
       key,
       name: COMMODITY_NAMES[key] || key,
       unit: QUANTITY_UNITS[d.quantity_unit] || 't',
+      // a good with any legality above zero is contraband (the plist marks
+      // slaves, narcotics and firearms with the "illegal" comment)
+      illegal: (d.legality_export || 0) + (d.legality_import || 0) > 0,
     }))
     .sort((a, b) => a.sort_order - b.sort_order);
 }
@@ -413,6 +416,14 @@ export function sellGood(g, key, qty = 1) {
   g.player.credits += n * row.price;
   g.events.push({ type: 'sell' });
   pushMessage(g, `SOLD ${n} ${row.name.toUpperCase()} FOR ${(n * row.price).toFixed(1)} CR`, GREEN);
+  // Selling a good that is illegal to export is a crime: Oolite sums
+  // exportLegality * quantity (StationEntity legalStatusOfManifest) when you
+  // leave with the goods; the port charges the sale, the moment the cargo
+  // actually leaves your hold.
+  if (row.legality_export > 0) {
+    pushMessage(g, `SELLING ${row.name.toUpperCase()} IS ILLEGAL`, RED);
+    addCrime(g, row.legality_export * n);
+  }
   return true;
 }
 

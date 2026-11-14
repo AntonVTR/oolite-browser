@@ -265,7 +265,7 @@ function buildMarketScreen() {
     rows.map((r) => {
       const held = p.cargo[r.key] || 0;
       return `<tr>
-        <td>${r.name}</td>
+        <td>${r.name}${r.illegal ? '<span class="ill" title="illegal to sell">ILLEGAL</span>' : ''}</td>
         <td>${r.price.toFixed(1)}</td>
         <td>${r.stock}</td>
         <td>${held}</td>

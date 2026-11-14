@@ -469,6 +469,28 @@ assert.strictEqual(rows.find((r) => r.key === 'food').stock, foodStock0,
   'and buys them back into it');
 assert.ok(Math.abs(g.player.credits - credits0) < 1e-9, 'round trip is lossless in one system');
 
+// ---- illegal trade ----------------------------------------------------------
+const slavesRow = rows.find((r) => r.key === 'slaves');
+assert.ok(slavesRow.illegal, 'the market marks slaves as illegal');
+assert.ok(!rows.find((r) => r.key === 'food').illegal, 'food carries no mark');
+let crime = g.crime;
+g.player.cargo.slaves = 4;
+assert.ok(sellGood(g, 'slaves', 4), 'the station buys them anyway');
+assert.strictEqual(g.crime, crime + 4, 'selling slaves is a crime: one point per tonne');
+assert.strictEqual(legalStatus(g.crime), 'Offender', 'and it shows on the record');
+crime = g.crime;
+g.player.cargo.narcotics = 2;
+assert.ok(sellGood(g, 'narcotics', 2), 'narcotics sell too');
+assert.strictEqual(g.crime, crime + 4, 'narcotics carry the higher penalty: two per tonne');
+// buying contraband is allowed — the crime is selling it
+crime = g.crime;
+g.player.credits = Math.max(g.player.credits, 1000);
+assert.ok(buyGood(g, 'narcotics', 1), 'the market sells narcotics');
+assert.strictEqual(g.crime, crime, 'buying illegal goods adds no crime');
+assert.ok(sellGood(g, 'narcotics', 1), 'selling them does');
+assert.strictEqual(g.crime, crime + 2, 'one more sale, two more points');
+g.crime = 0; // leave the record the way docking set it
+
 g.player.credits = 100000;
 for (let i = 0; i < 30; i++) buyGood(g, 'machinery', 5);
 assert.ok(cargoUsed(g) <= g.player.maxCargo, 'cargo hold cap respected');
