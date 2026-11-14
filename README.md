@@ -28,6 +28,13 @@ gyro, keyboard/mouse and gamepad.
   police, and legal status runs Clear → Offender → Fugitive — shown on the
   status screen (`5` / STATUS while flying) and at the station. Docking
   clears the record.
+- **Commodity market**: the 17 goods of the real `trade-goods.plist`, priced
+  and stocked per system by Oolite's own economy formulas (`economicBiasForGood`
+  from the good's peak export/import economies, then the price and quantity
+  averages with the source's two-draw random term, `OOCommodities.m`). Stock
+  moves with every trade (127-unit market limit), gold and gem stones keep their
+  kg/g units, and slaves, narcotics and Firearms are marked **ILLEGAL** —
+  selling them raises the legal status.
 - **Controls**: virtual stick + throttle + buttons (touch) — the stick floats:
   touch anywhere in the left half to grab it where your finger lands; radar tap
   zooms the scanner. Gyro tilt steering with the iOS permission gesture,
@@ -75,7 +82,10 @@ gyro, keyboard/mouse and gamepad.
 | Fullscreen | `F11` (browser) | FULL | — |
 
 Docking: fly within 400 m of the station at under 120 m/s (or press DOCK under
-1500 m). The station screen has two tabs: **Market** (six commodities plus an
+1500 m). The station screen has two tabs: **Market** (the 17 commodities of
+`trade-goods.plist`, each with the price and stock the current system's
+economy gives it — food is cheap where it is grown, computers where they are
+built — and contraband tagged **ILLEGAL**; selling it is a crime. Below them an
 **Equipment** section — the E.C.M. System for 6 000 CR and extra missiles for
 300 CR each, up to the hull's pylon count) and **Shipyard** (eleven hulls with
 real `shipyard.plist` prices; your current ship is traded in at ~71% of its

@@ -20,8 +20,9 @@ const {
 const read = (p) => readFileSync(join(root, 'web/assets', p), 'utf8');
 const shipdata = parsePlist(read('config/shipdata.plist'));
 const shipyard = parsePlist(read('config/shipyard.plist'));
+const tradeGoods = parsePlist(read('config/trade-goods.plist'));
 // no meshes: radiusOf() falls back to 60 m, which is enough for save logic
-const assets = { plists: { shipyard, shipdata }, parsedMeshes: {} };
+const assets = { plists: { shipyard, shipdata, 'trade-goods': tradeGoods }, parsedMeshes: {} };
 const newGame = () => createGame(assets);
 
 // Map-backed stand-in for localStorage (node has none).

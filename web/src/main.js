@@ -233,8 +233,13 @@ function buildMarketScreen() {
   el('dock-title').textContent = `${sys.name} — STATION`;
   const p = game.player;
   const used = cargoUsed(game);
+  const rows = marketFor(game);
+  const byKey = new Map(rows.map((r) => [r.key, r]));
   const cargoLines = Object.entries(p.cargo)
-    .map(([k, v]) => `  ${k}: ${v} t`).join('\n') || '  (empty)';
+    .map(([k, v]) => {
+      const r = byKey.get(k);
+      return `  ${r ? r.name : k}: ${v} ${r ? r.unit : 't'}`;
+    }).join('\n') || '  (empty)';
   el('dock-status').textContent =
     `Credits: ${p.credits.toFixed(1)} CR\n` +
     `Fuel: ${(p.fuel / 10).toFixed(1)} ly   Cargo: ${used}/${p.maxCargo} t\n` +
@@ -243,7 +248,6 @@ function buildMarketScreen() {
     `${sys.description}\n` +
     `Cargo hold:\n${cargoLines}`;
 
-  const rows = marketFor(game);
   const table = el('market');
   // Equipment sits under the commodities in the same table: the port ships two
   // items (ECM, extra missiles) at their real equipment.plist prices.
@@ -261,12 +265,12 @@ function buildMarketScreen() {
     rows.map((r) => {
       const held = p.cargo[r.key] || 0;
       return `<tr>
-        <td>${r.name}</td>
+        <td>${r.name}${r.illegal ? '<span class="ill" title="illegal to sell">ILLEGAL</span>' : ''}</td>
         <td>${r.price.toFixed(1)}</td>
         <td>${r.stock}</td>
         <td>${held}</td>
         <td>
-          <button data-act="buy" data-key="${r.key}">BUY</button>
+          <button data-act="buy" data-key="${r.key}" ${r.stock ? '' : 'disabled'}>BUY</button>
           <button data-act="sell" data-key="${r.key}" ${held ? '' : 'disabled'}>SELL</button>
         </td></tr>`;
     }).join('') +

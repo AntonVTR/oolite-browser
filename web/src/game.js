@@ -14,17 +14,36 @@ import { makeGalaxy, distanceLy } from './galaxy.js';
 // seed — system 0 is Tibedied, Lave is system 7, as in the original game.
 export const SYSTEMS = makeGalaxy(1).systems;
 
-// Elite-flavoured commodities: price moves against the system's economy.
-const GOODS = [
-  { key: 'food', name: 'Food', base: 3.6, trend: +1, unit: 't' },
-  { key: 'minerals', name: 'Minerals', base: 4.2, trend: +1, unit: 't' },
-  { key: 'machinery', name: 'Machinery', base: 60.8, trend: -1, unit: 't' },
-  { key: 'computers', name: 'Computers', base: 128.4, trend: -1, unit: 't' },
-  { key: 'furs', name: 'Furs', base: 68.4, trend: +1, unit: 't' },
-  { key: 'weapons', name: 'Weapons', base: 78.6, trend: -1, unit: 't' },
-];
+// The real 17 commodities from upstream Resources/Config/trade-goods.plist
+// (copied to web/assets/config by tools/copy-assets.sh). The plist's `name`
+// only holds the localization key, so the display strings are the
+// "commodity-name …" entries of descriptions.plist; quantity_unit 0/1/2 is
+// t/kg/g.
+const COMMODITY_NAMES = {
+  food: 'Food', textiles: 'Textiles', radioactives: 'Radioactives',
+  slaves: 'Slaves', liquor_wines: 'Liquor/Wines', luxuries: 'Luxuries',
+  narcotics: 'Narcotics', computers: 'Computers', machinery: 'Machinery',
+  alloys: 'Alloys', firearms: 'Firearms', furs: 'Furs', minerals: 'Minerals',
+  gold: 'Gold', platinum: 'Platinum', gem_stones: 'Gem-Stones',
+  alien_items: 'Alien Items',
+};
+const QUANTITY_UNITS = ['t', 'kg', 'g'];
 
-export { GOODS };
+// Sorted the way Oolite's goodsSorter orders the market: by the plist's
+// sort_order (100 … 1700).
+function goodsFrom(plist) {
+  return Object.entries(plist || {})
+    .map(([key, d]) => ({
+      ...d,
+      key,
+      name: COMMODITY_NAMES[key] || key,
+      unit: QUANTITY_UNITS[d.quantity_unit] || 't',
+      // a good with any legality above zero is contraband (the plist marks
+      // slaves, narcotics and firearms with the "illegal" comment)
+      illegal: (d.legality_export || 0) + (d.legality_import || 0) > 0,
+    }))
+    .sort((a, b) => a.sort_order - b.sort_order);
+}
 
 // Combat rating: names from descriptions.plist "rating", thresholds from
 // Oolite's OODisplayRatingStringFromKillCount (8, 16, 32, 64, 128, 512,
@@ -261,6 +280,9 @@ export function createGame(assets) {
     shipdata: assets.plists.shipdata,
     parsedMeshes: assets.parsedMeshes,
     shipyard: assets.plists.shipyard,
+    // the station's commodities, from the real trade-goods.plist
+    goods: goodsFrom(assets.plists['trade-goods']),
+    markets: {}, // systemIndex -> generated market, mutated by trades
     // what the station still has for sale: every yard hull with shipdata stats
     yardStock: Object.keys(assets.plists.shipyard).filter(
       (k) => assets.plists.shipdata[`oolite_template_${k}`],
@@ -326,17 +348,45 @@ export function zoomScanner(g, dir) {
   return g.scannerZoom;
 }
 
-// Deterministic market: prices/stock depend only on the system, so the screen
-// is stable between opens.
-export function marketFor(g) {
+// Oolite's market generation, from OOCommodities.m: economicBiasForGood gives
+// the good's distance from its peak export/import economies (-1 … +1),
+// generatePriceForGood / generateQuantityForGood then push the plist average
+// away from (price) or towards (quantity) that bias, plus a random term that
+// is the difference of two randf() draws. price_average is in decicredits, so
+// the price is divided by 10 into the port's credits.
+function economicBias(good, economy) {
+  const exDiff = Math.abs(economy - good.peak_export) * 2;
+  const imDiff = Math.abs(economy - good.peak_import) * 2;
+  const distance = (exDiff + imDiff) / 2; // both diffs are even, so exact
+  if (exDiff === imDiff) return 0;
+  return exDiff > imDiff ? -(1 - imDiff / distance) : 1 - exDiff / distance;
+}
+
+const MARKET_CAPACITY = 127; // MAIN_SYSTEM_MARKET_LIMIT
+
+function generateMarket(g) {
   const sys = SYSTEMS[g.systemIndex];
-  return GOODS.map((good, i) => {
-    const drift = (3.5 - sys.economy) * 0.08 * good.trend;
-    const jitter = (pseudoRandom(g.systemIndex * 31 + i * 7) - 0.5) * 0.1;
-    const price = Math.max(1, Math.round(good.base * (1 + drift + jitter) * 10) / 10);
-    const stock = 8 + Math.floor(pseudoRandom(g.systemIndex * 17 + i * 13) * 40);
-    return { ...good, price, stock };
+  return g.goods.map((good, i) => {
+    const bias = economicBias(good, sys.economy);
+    const s = g.systemIndex * 131 + i * 17;
+    const rnd = (a, b) => pseudoRandom(s + a) - pseudoRandom(s + b);
+    // trunc() is the C cast in the source: whole decicredits, whole units
+    const price = Math.max(0, Math.trunc(
+      good.price_average * (1 - good.price_economic * bias
+        + good.price_random * rnd(0.1, 0.6))));
+    const stock = Math.min(MARKET_CAPACITY, Math.max(0, Math.trunc(
+      good.quantity_average * (1 + good.quantity_economic * bias
+        + good.quantity_random * rnd(1.1, 1.6)))));
+    return { ...good, price: price / 10, stock };
   });
+}
+
+// Prices and stock belong to the system: generated once per visit, then moved
+// by every trade, the way Oolite's station market keeps its quantities.
+// shortcut: the market itself is not saved — a reload regenerates it.
+export function marketFor(g) {
+  if (!g.markets[g.systemIndex]) g.markets[g.systemIndex] = generateMarket(g);
+  return g.markets[g.systemIndex];
 }
 
 export function buyGood(g, key, qty = 1) {
@@ -346,6 +396,7 @@ export function buyGood(g, key, qty = 1) {
   const n = Math.min(qty, free, row.stock, Math.floor(g.player.credits / row.price));
   if (n <= 0) { pushMessage(g, 'UNABLE TO BUY', RED); return false; }
   g.player.credits -= n * row.price;
+  row.stock -= n;
   g.player.cargo[key] = (g.player.cargo[key] || 0) + n;
   g.events.push({ type: 'buy' });
   pushMessage(g, `BOUGHT ${n} ${row.name.toUpperCase()} FOR ${(n * row.price).toFixed(1)} CR`, GREEN);
@@ -354,14 +405,25 @@ export function buyGood(g, key, qty = 1) {
 
 export function sellGood(g, key, qty = 1) {
   const row = marketFor(g).find((r) => r.key === key);
+  if (!row) { pushMessage(g, 'NOTHING TO SELL', RED); return false; }
   const held = g.player.cargo[key] || 0;
-  const n = Math.min(qty, held);
-  if (!row || n <= 0) { pushMessage(g, 'NOTHING TO SELL', RED); return false; }
+  // the station will not flood its own market: cap the sale at capacity
+  const n = Math.min(qty, held, MARKET_CAPACITY - row.stock);
+  if (n <= 0) { pushMessage(g, 'NOTHING TO SELL', RED); return false; }
   g.player.cargo[key] = held - n;
   if (!g.player.cargo[key]) delete g.player.cargo[key];
+  row.stock += n;
   g.player.credits += n * row.price;
   g.events.push({ type: 'sell' });
   pushMessage(g, `SOLD ${n} ${row.name.toUpperCase()} FOR ${(n * row.price).toFixed(1)} CR`, GREEN);
+  // Selling a good that is illegal to export is a crime: Oolite sums
+  // exportLegality * quantity (StationEntity legalStatusOfManifest) when you
+  // leave with the goods; the port charges the sale, the moment the cargo
+  // actually leaves your hold.
+  if (row.legality_export > 0) {
+    pushMessage(g, `SELLING ${row.name.toUpperCase()} IS ILLEGAL`, RED);
+    addCrime(g, row.legality_export * n);
+  }
   return true;
 }
 

@@ -80,6 +80,18 @@ const { parseMesh } = await import(join(root, 'web/src/mesh.js'));
   console.log('plist: planetinfo OK — Lave radius', lave.radius, 'km, planet_distance', lave.planet_distance);
 }
 
+{
+  const tg = parsePlist(readFileSync(join(root, 'web/assets/config/trade-goods.plist'), 'utf8'));
+  assert.strictEqual(Object.keys(tg).length, 17, 'the 17 commodities');
+  assert.strictEqual(tg.food.price_average, 50, 'price_average is in decicredits');
+  assert.strictEqual(tg.food.peak_export, 7, 'food peaks in a poor agricultural economy');
+  assert.strictEqual(tg.slaves.legality_export, 1, 'slaves are illegal to export');
+  assert.strictEqual(tg.narcotics.legality_export, 2, 'narcotics more so');
+  assert.strictEqual(tg.alien_items.quantity_average, 0, 'alien items are never for sale');
+  assert.strictEqual(tg.gold.quantity_unit, 1, 'gold is measured in kg');
+  console.log('plist: trade-goods.plist OK,', Object.keys(tg).length, 'commodities');
+}
+
 // ---- mesh ------------------------------------------------------------------
 {
   const text = readFileSync(join(root, 'web/assets/models/oolite_cobra3.dat'), 'utf8');

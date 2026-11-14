@@ -22,6 +22,7 @@ const read = (p) => readFileSync(join(root, 'web/assets', p), 'utf8');
 const shipdata = parsePlist(read('config/shipdata.plist'));
 const shipyard = parsePlist(read('config/shipyard.plist'));
 const equipment = parsePlist(read('config/equipment.plist'));
+const tradeGoods = parsePlist(read('config/trade-goods.plist'));
 const parsedMeshes = {};
 for (const m of ['cobra3', 'mamba', 'krait', 'python', 'cobramk1', 'asp', 'coriolis',
   'anaconda', 'boa', 'boa-mk2', 'gecko', 'viper', 'thargoid', 'constrictor', 'adder']) {
@@ -48,7 +49,7 @@ for (const [key, def] of Object.entries(SHIP_DEFS)) {
   for (const sub of def.subentities || []) checkTextures(sub, shipdata[sub] || entry);
 }
 
-const assets = { plists: { shipyard, shipdata, equipment }, parsedMeshes };
+const assets = { plists: { shipyard, shipdata, equipment, 'trade-goods': tradeGoods }, parsedMeshes };
 const noInput = () => ({});
 
 const g = createGame(assets);
@@ -398,16 +399,97 @@ assert.strictEqual(g.phase, 'docked', 'slow near the station docks the ship');
 assert.strictEqual(g.crime, 0, 'docking forgives every crime');
 
 const rows = marketFor(g);
-assert.strictEqual(rows.length, 6, 'six commodities');
-assert.ok(rows.every((r) => r.price > 0 && r.stock > 0));
+assert.strictEqual(rows.length, 17, 'every good of the real trade-goods.plist');
+assert.deepStrictEqual(rows.map((r) => r.key),
+  ['food', 'textiles', 'radioactives', 'slaves', 'liquor_wines', 'luxuries',
+    'narcotics', 'computers', 'machinery', 'alloys', 'firearms', 'furs',
+    'minerals', 'gold', 'platinum', 'gem_stones', 'alien_items'],
+  'market order is the plist sort_order');
+assert.ok(rows.every((r) => r.price > 0 && r.stock >= 0), 'prices and stock come from the plist');
+assert.strictEqual(rows.find((r) => r.key === 'food').name, 'Food', 'display name resolved');
+assert.strictEqual(rows.find((r) => r.key === 'liquor_wines').name, 'Liquor/Wines');
+assert.strictEqual(rows.find((r) => r.key === 'gold').unit, 'kg', 'quantity_unit 1 is kg');
+assert.strictEqual(rows.find((r) => r.key === 'gem_stones').unit, 'g', 'quantity_unit 2 is g');
+assert.strictEqual(rows.find((r) => r.key === 'alien_items').stock, 0,
+  'alien items have no quantity_average, so they are never for sale');
+
+// ---- per-system economics (OOCommodities.m) --------------------------------
+// Same system, same market; the economy shifts both numbers the way
+// economicBiasForGood / generatePriceForGood / generateQuantityForGood do.
+const at = (idx, fn) => {
+  const prev = g.systemIndex;
+  g.systemIndex = idx;
+  const v = fn();
+  g.systemIndex = prev;
+  return v;
+};
+const priceAt = (idx, key) => at(idx, () => marketFor(g).find((r) => r.key === key).price);
+const stockAt = (idx, key) => at(idx, () => marketFor(g).find((r) => r.key === key).stock);
+const econ0 = SYSTEMS.find((s) => s.economy === 0).index; // rich industrial
+const econ7 = SYSTEMS.find((s) => s.economy === 7).index; // poor agricultural
+
+assert.ok(priceAt(econ7, 'food') < priceAt(econ0, 'food'),
+  'food is cheaper where it is grown');
+assert.ok(stockAt(econ7, 'food') > stockAt(econ0, 'food'),
+  'and there is more of it for sale there');
+assert.ok(priceAt(econ0, 'machinery') < priceAt(econ7, 'machinery'),
+  'machinery is cheaper where it is built');
+
+// every price and quantity stays inside the band the plist itself defines
+for (const r of rows) {
+  const d = tradeGoods[r.key];
+  const lo = d.price_average * (1 - d.price_economic - d.price_random) / 10;
+  const hi = d.price_average * (1 + d.price_economic + d.price_random) / 10;
+  assert.ok(r.price >= lo - 0.1 && r.price <= hi,
+    `${r.key} price ${r.price} inside the plist band [${lo}, ${hi}]`);
+  const qLo = Math.max(0, Math.trunc(
+    d.quantity_average * (1 - d.quantity_economic - d.quantity_random)));
+  const qHi = Math.min(127, Math.trunc(
+    d.quantity_average * (1 + d.quantity_economic + d.quantity_random)));
+  assert.ok(r.stock >= qLo && r.stock <= qHi,
+    `${r.key} stock ${r.stock} inside the plist band [${qLo}, ${qHi}]`);
+}
+
+// a second commander in the same system gets the same market
+const otherG = createGame(assets);
+otherG.systemIndex = econ7;
+assert.strictEqual(marketFor(otherG).find((r) => r.key === 'food').price,
+  priceAt(econ7, 'food'), 'the market is a pure function of the system');
 const credits0 = g.player.credits;
+const foodStock0 = rows.find((r) => r.key === 'food').stock;
 assert.ok(buyGood(g, 'food', 3), 'buy works');
 assert.strictEqual(g.player.cargo.food, 3);
 assert.ok(g.player.credits < credits0, 'credits spent');
 assert.strictEqual(cargoUsed(g), 3);
+assert.strictEqual(rows.find((r) => r.key === 'food').stock, foodStock0 - 3,
+  'the station sells from its own stock');
 assert.ok(sellGood(g, 'food', 3), 'sell works');
 assert.strictEqual(g.player.cargo.food, undefined);
+assert.strictEqual(rows.find((r) => r.key === 'food').stock, foodStock0,
+  'and buys them back into it');
 assert.ok(Math.abs(g.player.credits - credits0) < 1e-9, 'round trip is lossless in one system');
+
+// ---- illegal trade ----------------------------------------------------------
+const slavesRow = rows.find((r) => r.key === 'slaves');
+assert.ok(slavesRow.illegal, 'the market marks slaves as illegal');
+assert.ok(!rows.find((r) => r.key === 'food').illegal, 'food carries no mark');
+let crime = g.crime;
+g.player.cargo.slaves = 4;
+assert.ok(sellGood(g, 'slaves', 4), 'the station buys them anyway');
+assert.strictEqual(g.crime, crime + 4, 'selling slaves is a crime: one point per tonne');
+assert.strictEqual(legalStatus(g.crime), 'Offender', 'and it shows on the record');
+crime = g.crime;
+g.player.cargo.narcotics = 2;
+assert.ok(sellGood(g, 'narcotics', 2), 'narcotics sell too');
+assert.strictEqual(g.crime, crime + 4, 'narcotics carry the higher penalty: two per tonne');
+// buying contraband is allowed — the crime is selling it
+crime = g.crime;
+g.player.credits = Math.max(g.player.credits, 1000);
+assert.ok(buyGood(g, 'narcotics', 1), 'the market sells narcotics');
+assert.strictEqual(g.crime, crime, 'buying illegal goods adds no crime');
+assert.ok(sellGood(g, 'narcotics', 1), 'selling them does');
+assert.strictEqual(g.crime, crime + 2, 'one more sale, two more points');
+g.crime = 0; // leave the record the way docking set it
 
 g.player.credits = 100000;
 for (let i = 0; i < 30; i++) buyGood(g, 'machinery', 5);
