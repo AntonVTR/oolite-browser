@@ -11,8 +11,9 @@ Sources studied:
   versions, mission and equipment overview
 
 Checked against the port on 2026-11-13 (`web/src`, `README.md`). File references
-are to this repo. Items 1–3 were closed on 2026-11-14 (branch `iter/status`);
-their sections below keep the original description for the record.
+are to this repo. Items 1–3 were closed on 2026-11-14 (branch `iter/status`) and
+item 4 the same day (branch `iter/market`); their sections below keep the
+original description for the record.
 
 **Ranking:** P1 = core identity of the game, P2 = universe & travel depth,
 P3 = flight/combat depth, P4 = fidelity polish.
@@ -71,6 +72,18 @@ quantity formulas and export/import legality. Port: 6 hardcoded goods with
 invented prices (`GOODS` in `web/src/game.js`); `trade-goods.plist` is not
 even copied into `web/assets/config/`. No slaves/narcotics → no illegal-trade
 hook for #2.
+
+**Done** (branch `iter/market`): `trade-goods.plist` now ships in
+`web/assets/config/` and `goodsFrom()` (`web/src/game.js`) turns its 17
+entries into the market — display names from `descriptions.plist`, units from
+`quantity_unit`, order from `sort_order`. `generateMarket()` follows
+`OOCommodities.m`: `economicBiasForGood()` distances the system from each
+good's `peak_export`/`peak_import` economies, the price (decicredits → credits)
+and the quantity come from the plist averages with the source's two-draw random
+term, so every system has its own numbers and trades move the stock (127-unit
+market limit). Contraband is tagged in the market and selling it calls
+`addCrime()` (#2): one point per tonne, two for narcotics. The docked screen
+keeps all 17 rows and the BUY/SELL pair on one line down to 320 px.
 
 ### 5. Equipment range (2 of ~41 items)
 Original upgrades: better lasers, more missiles, cargo bay, **docking
