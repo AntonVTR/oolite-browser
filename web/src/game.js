@@ -14,17 +14,33 @@ import { makeGalaxy, distanceLy } from './galaxy.js';
 // seed — system 0 is Tibedied, Lave is system 7, as in the original game.
 export const SYSTEMS = makeGalaxy(1).systems;
 
-// Elite-flavoured commodities: price moves against the system's economy.
-const GOODS = [
-  { key: 'food', name: 'Food', base: 3.6, trend: +1, unit: 't' },
-  { key: 'minerals', name: 'Minerals', base: 4.2, trend: +1, unit: 't' },
-  { key: 'machinery', name: 'Machinery', base: 60.8, trend: -1, unit: 't' },
-  { key: 'computers', name: 'Computers', base: 128.4, trend: -1, unit: 't' },
-  { key: 'furs', name: 'Furs', base: 68.4, trend: +1, unit: 't' },
-  { key: 'weapons', name: 'Weapons', base: 78.6, trend: -1, unit: 't' },
-];
+// The real 17 commodities from upstream Resources/Config/trade-goods.plist
+// (copied to web/assets/config by tools/copy-assets.sh). The plist's `name`
+// only holds the localization key, so the display strings are the
+// "commodity-name …" entries of descriptions.plist; quantity_unit 0/1/2 is
+// t/kg/g.
+const COMMODITY_NAMES = {
+  food: 'Food', textiles: 'Textiles', radioactives: 'Radioactives',
+  slaves: 'Slaves', liquor_wines: 'Liquor/Wines', luxuries: 'Luxuries',
+  narcotics: 'Narcotics', computers: 'Computers', machinery: 'Machinery',
+  alloys: 'Alloys', firearms: 'Firearms', furs: 'Furs', minerals: 'Minerals',
+  gold: 'Gold', platinum: 'Platinum', gem_stones: 'Gem-Stones',
+  alien_items: 'Alien Items',
+};
+const QUANTITY_UNITS = ['t', 'kg', 'g'];
 
-export { GOODS };
+// Sorted the way Oolite's goodsSorter orders the market: by the plist's
+// sort_order (100 … 1700).
+function goodsFrom(plist) {
+  return Object.entries(plist || {})
+    .map(([key, d]) => ({
+      ...d,
+      key,
+      name: COMMODITY_NAMES[key] || key,
+      unit: QUANTITY_UNITS[d.quantity_unit] || 't',
+    }))
+    .sort((a, b) => a.sort_order - b.sort_order);
+}
 
 // Combat rating: names from descriptions.plist "rating", thresholds from
 // Oolite's OODisplayRatingStringFromKillCount (8, 16, 32, 64, 128, 512,
@@ -261,6 +277,8 @@ export function createGame(assets) {
     shipdata: assets.plists.shipdata,
     parsedMeshes: assets.parsedMeshes,
     shipyard: assets.plists.shipyard,
+    // the station's commodities, from the real trade-goods.plist
+    goods: goodsFrom(assets.plists['trade-goods']),
     // what the station still has for sale: every yard hull with shipdata stats
     yardStock: Object.keys(assets.plists.shipyard).filter(
       (k) => assets.plists.shipdata[`oolite_template_${k}`],
@@ -329,14 +347,11 @@ export function zoomScanner(g, dir) {
 // Deterministic market: prices/stock depend only on the system, so the screen
 // is stable between opens.
 export function marketFor(g) {
-  const sys = SYSTEMS[g.systemIndex];
-  return GOODS.map((good, i) => {
-    const drift = (3.5 - sys.economy) * 0.08 * good.trend;
-    const jitter = (pseudoRandom(g.systemIndex * 31 + i * 7) - 0.5) * 0.1;
-    const price = Math.max(1, Math.round(good.base * (1 + drift + jitter) * 10) / 10);
-    const stock = 8 + Math.floor(pseudoRandom(g.systemIndex * 17 + i * 13) * 40);
-    return { ...good, price, stock };
-  });
+  return g.goods.map((good) => ({
+    ...good,
+    price: good.price_average / 10, // plist price_average is in decicredits
+    stock: Math.round(good.quantity_average),
+  }));
 }
 
 export function buyGood(g, key, qty = 1) {

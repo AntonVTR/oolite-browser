@@ -233,8 +233,13 @@ function buildMarketScreen() {
   el('dock-title').textContent = `${sys.name} — STATION`;
   const p = game.player;
   const used = cargoUsed(game);
+  const rows = marketFor(game);
+  const byKey = new Map(rows.map((r) => [r.key, r]));
   const cargoLines = Object.entries(p.cargo)
-    .map(([k, v]) => `  ${k}: ${v} t`).join('\n') || '  (empty)';
+    .map(([k, v]) => {
+      const r = byKey.get(k);
+      return `  ${r ? r.name : k}: ${v} ${r ? r.unit : 't'}`;
+    }).join('\n') || '  (empty)';
   el('dock-status').textContent =
     `Credits: ${p.credits.toFixed(1)} CR\n` +
     `Fuel: ${(p.fuel / 10).toFixed(1)} ly   Cargo: ${used}/${p.maxCargo} t\n` +
@@ -243,7 +248,6 @@ function buildMarketScreen() {
     `${sys.description}\n` +
     `Cargo hold:\n${cargoLines}`;
 
-  const rows = marketFor(game);
   const table = el('market');
   // Equipment sits under the commodities in the same table: the port ships two
   // items (ECM, extra missiles) at their real equipment.plist prices.

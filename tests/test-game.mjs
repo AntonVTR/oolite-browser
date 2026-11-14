@@ -22,6 +22,7 @@ const read = (p) => readFileSync(join(root, 'web/assets', p), 'utf8');
 const shipdata = parsePlist(read('config/shipdata.plist'));
 const shipyard = parsePlist(read('config/shipyard.plist'));
 const equipment = parsePlist(read('config/equipment.plist'));
+const tradeGoods = parsePlist(read('config/trade-goods.plist'));
 const parsedMeshes = {};
 for (const m of ['cobra3', 'mamba', 'krait', 'python', 'cobramk1', 'asp', 'coriolis',
   'anaconda', 'boa', 'boa-mk2', 'gecko', 'viper', 'thargoid', 'constrictor', 'adder']) {
@@ -48,7 +49,7 @@ for (const [key, def] of Object.entries(SHIP_DEFS)) {
   for (const sub of def.subentities || []) checkTextures(sub, shipdata[sub] || entry);
 }
 
-const assets = { plists: { shipyard, shipdata, equipment }, parsedMeshes };
+const assets = { plists: { shipyard, shipdata, equipment, 'trade-goods': tradeGoods }, parsedMeshes };
 const noInput = () => ({});
 
 const g = createGame(assets);
@@ -398,8 +399,17 @@ assert.strictEqual(g.phase, 'docked', 'slow near the station docks the ship');
 assert.strictEqual(g.crime, 0, 'docking forgives every crime');
 
 const rows = marketFor(g);
-assert.strictEqual(rows.length, 6, 'six commodities');
-assert.ok(rows.every((r) => r.price > 0 && r.stock > 0));
+assert.strictEqual(rows.length, 17, 'every good of the real trade-goods.plist');
+assert.deepStrictEqual(rows.map((r) => r.key),
+  ['food', 'textiles', 'radioactives', 'slaves', 'liquor_wines', 'luxuries',
+    'narcotics', 'computers', 'machinery', 'alloys', 'firearms', 'furs',
+    'minerals', 'gold', 'platinum', 'gem_stones', 'alien_items'],
+  'market order is the plist sort_order');
+assert.ok(rows.every((r) => r.price > 0 && r.stock >= 0), 'prices and stock come from the plist');
+assert.strictEqual(rows.find((r) => r.key === 'food').name, 'Food', 'display name resolved');
+assert.strictEqual(rows.find((r) => r.key === 'liquor_wines').name, 'Liquor/Wines');
+assert.strictEqual(rows.find((r) => r.key === 'gold').unit, 'kg', 'quantity_unit 1 is kg');
+assert.strictEqual(rows.find((r) => r.key === 'gem_stones').unit, 'g', 'quantity_unit 2 is g');
 const credits0 = g.player.credits;
 assert.ok(buyGood(g, 'food', 3), 'buy works');
 assert.strictEqual(g.player.cargo.food, 3);
