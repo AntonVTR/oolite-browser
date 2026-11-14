@@ -6,7 +6,7 @@
 // crash the game — loadGame() just returns false and the title screen starts
 // fresh.
 
-import { spawnPirate, spawnTrader } from './game.js';
+import { spawnPirate, spawnTrader, spawnPolice } from './game.js';
 
 export const SAVE_KEY = 'oolite-browser.save';
 export const SAVE_VERSION = 1;

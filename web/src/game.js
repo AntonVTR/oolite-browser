@@ -589,9 +589,11 @@ function fireLaser(g) {
 
 function damageShip(g, ship, amount, fromPlayer) {
   // Crimes: hit the police anywhere, or any innocent ship inside the
-  // station's protection zone (MISSING-FEATURES.md #2).
-  if (fromPlayer && !ship.hostile
+  // station's protection zone (MISSING-FEATURES.md #2). Firing crime is
+  // charged once per innocent target, not on every beam tick.
+  if (fromPlayer && !ship.hostile && !ship.playerAttacked
       && (ship.role === 'police' || inProtectionZone(g, ship.pos))) {
+    ship.playerAttacked = true;
     addCrime(g, CRIME_FIRING);
   }
   ship.energy -= amount;
