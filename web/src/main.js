@@ -526,6 +526,7 @@ async function main() {
   el('touch').querySelector('.buttons').insertBefore(btnChart, el('btnFire'));
 
   window.addEventListener('keydown', (e) => {
+    if (e.repeat) return; // one press, one action — holding C must not flicker the chart
     if (e.code === 'KeyJ') jumpRequested = true;
     if (e.code === 'KeyZ') zoomScanner(game, e.shiftKey ? -1 : 1); // Oolite z / Z
     if (e.code === 'KeyC') toggleChart(game, playEvents); // Oolite F is full throttle here

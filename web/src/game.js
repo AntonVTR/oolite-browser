@@ -497,7 +497,9 @@ export function launch(g) {
   g.hudVisible = true;
   pushMessage(g, 'LAUNCHED — GOOD LUCK, COMMANDER', GREEN, 6);
   if (!g.entities.some((e) => e.type === 'ship' && e.hostile)) spawnPirate(g);
-  spawnPolice(g); // a viper patrol waits outside the station
+  // Entities survive docking, so an unguarded spawn would stack one more
+  // viper on every dock/launch cycle — same guard as the pirate above.
+  if (!g.entities.some((e) => e.role === 'police')) spawnPolice(g);
 }
 
 // selected: a system index from the short-range chart; without one the jump

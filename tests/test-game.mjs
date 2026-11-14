@@ -476,6 +476,11 @@ assert.strictEqual(hud.scannerHit(60, 690), false, 'far left is not the radar');
 
 // ---- jump -----------------------------------------------------------------
 launch(g);
+// entities survive docking, so relaunching must not stack a second patrol
+const cops0 = g.entities.filter((e) => e.role === 'police').length;
+launch(g);
+assert.strictEqual(g.entities.filter((e) => e.role === 'police').length, cops0,
+  'relaunch keeps the patrol it already has');
 const sys0 = g.systemIndex;
 const from = SYSTEMS[sys0];
 const fuel0 = g.player.fuel; // 70 = 7.0 ly full tank
