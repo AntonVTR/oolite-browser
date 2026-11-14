@@ -270,7 +270,7 @@ function buildMarketScreen() {
         <td>${r.stock}</td>
         <td>${held}</td>
         <td>
-          <button data-act="buy" data-key="${r.key}">BUY</button>
+          <button data-act="buy" data-key="${r.key}" ${r.stock ? '' : 'disabled'}>BUY</button>
           <button data-act="sell" data-key="${r.key}" ${held ? '' : 'disabled'}>SELL</button>
         </td></tr>`;
     }).join('') +
