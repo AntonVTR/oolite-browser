@@ -11,7 +11,8 @@ const { parseMesh } = await import(join(root, 'web/src/mesh.js'));
 const { SHIP_DEFS, resolveTextureName } = await import(join(root, 'web/src/assets.js'));
 const { createGame, stepGame, launch, marketFor, buyGood, sellGood, cargoUsed, jump, SYSTEMS,
   spawnPirate, spawnTrader, spawnThargoid, shipyardFor, tradeInValue, buyShip, zoomScanner,
-  launchMissile, activateECM, equipmentFor, buyEquipment, missileCap } =
+  launchMissile, activateECM, equipmentFor, buyEquipment, missileCap, rankName,
+  legalStatus, addCrime, spawnPolice } =
   await import(join(root, 'web/src/game.js'));
 const { Hud } = await import(join(root, 'web/src/hud.js'));
 const { distanceLy } = await import(join(root, 'web/src/galaxy.js'));
@@ -56,6 +57,23 @@ assert.strictEqual(g.hudVisible, false);
 assert.ok(g.station && g.station.type === 'station', 'station spawned');
 assert.strictEqual(g.player.maxSpeed, 350, 'real shipdata max_flight_speed');
 assert.strictEqual(g.player.maxCargo, 20, 'real shipdata max_cargo');
+
+// ---- combat rating ladder --------------------------------------------------
+// Oolite's kill thresholds: 8, 16, 32, 64, 128, 512, 2560, 6400.
+const rankCases = [
+  [0, 'Harmless'], [7, 'Harmless'],
+  [8, 'Mostly Harmless'], [15, 'Mostly Harmless'],
+  [16, 'Poor'], [31, 'Poor'],
+  [32, 'Average'], [63, 'Average'],
+  [64, 'Above Average'], [127, 'Above Average'],
+  [128, 'Competent'], [511, 'Competent'],
+  [512, 'Dangerous'], [2559, 'Dangerous'],
+  [2560, 'Deadly'], [6399, 'Deadly'],
+  [6400, 'Elite'], [100000, 'Elite'],
+];
+for (const [kills, name] of rankCases) {
+  assert.strictEqual(rankName(kills), name, `${kills} kills → ${name}`);
+}
 
 // ---- launch + flight ------------------------------------------------------
 launch(g);
@@ -250,11 +268,13 @@ g.entities = g.entities.filter((e) => e === anaconda || e.type === 'station');
 anaconda.pos = [g.player.pos[0], g.player.pos[1], g.player.pos[2] + 4000];
 anaconda.quat = [0, 0, 0, 1];
 const cr0 = g.player.credits;
+g.crime = 0; // the kills below are the only thing that may dirty the record
 for (let i = 0; i < 900 && anaconda.alive; i++) stepGame(g, { fire: true }, 1 / 60);
 assert.strictEqual(anaconda.alive, false, 'laser destroys the anaconda');
 assert.strictEqual(g.kills, kills0 + 3, 'kill counted (laser, missile, anaconda)');
 assert.strictEqual(anaconda.bounty, 0, 'innocent trader carries no bounty');
 assert.strictEqual(g.player.credits, cr0, 'so killing it pays nothing');
+assert.strictEqual(legalStatus(g.crime), 'Offender', 'killing a trader is a crime');
 assert.ok(!g.entities.includes(anaconda), 'anaconda wreck removed');
 
 // combat ships rotate through the hostile roster, all with a bounty
@@ -263,8 +283,8 @@ const seenPirates = new Set();
 const pirates = [];
 for (let i = 0; i < 7; i++) { const s = spawnPirate(g); pirates.push(s); seenPirates.add(s.shipKey); }
 assert.deepStrictEqual([...seenPirates].sort(),
-  ['asp', 'cobramk1', 'constrictor', 'gecko', 'krait', 'mamba', 'viper'],
-  'pirate rotation covers the combat ships');
+  ['asp', 'cobramk1', 'constrictor', 'gecko', 'krait', 'mamba'],
+  'pirate rotation covers the combat ships — vipers are the police now');
 assert.ok(pirates.every((s) => s.hostile && s.role === 'pirate' && s.bounty > 0),
   'combat ships spawn hostile with a real bounty');
 for (const s of pirates) {
@@ -296,12 +316,86 @@ stepGame(g, noInput(), 1 / 60);
 assert.ok(!healthy.breakingOff, 'undamaged pirate stands and fights');
 assert.ok(g.shots.some((s) => s.hostile), 'and returns fire');
 
+// ---- police, crimes and legal status ---------------------------------------
+// legal status ladder: Oolite's display thresholds (1 offender, 51 fugitive)
+assert.strictEqual(legalStatus(0), 'Clear');
+assert.strictEqual(legalStatus(1), 'Offender');
+assert.strictEqual(legalStatus(50), 'Offender');
+assert.strictEqual(legalStatus(51), 'Fugitive');
+
+// vipers are the police: they patrol while you are clean…
+g.crime = 0;
+g.entities = g.entities.filter((e) => e.type === 'station');
+g.shots = []; // drop the pirate's last volley so the check below is about the cop
+const cop = spawnPolice(g);
+assert.strictEqual(cop.shipKey, 'viper', 'the viper is the police hull');
+assert.strictEqual(cop.role, 'police');
+assert.strictEqual(cop.hostile, false, 'a clean commander is not hunted');
+cop.pos = [g.player.pos[0], g.player.pos[1], g.player.pos[2] - 1200];
+cop.quat = [0, 0, 0, 1]; // right behind the player, aimed up their tail
+g.player.fwdShield = g.player.maxShield;
+g.player.aftShield = g.player.maxShield;
+g.player.energy = g.player.maxEnergy;
+stepGame(g, noInput(), 1 / 60);
+assert.ok(!g.shots.some((s) => s.hostile), 'and never fire on a clean commander');
+
+// …and hunt you the moment your record is not
+addCrime(g, 64);
+assert.strictEqual(legalStatus(g.crime), 'Fugitive');
+stepGame(g, noInput(), 1 / 60);
+assert.ok(g.shots.some((s) => s.hostile), 'a wanted commander is hunted by the police');
+g.entities = g.entities.filter((e) => e.type === 'station');
+
+// reset the weapon between the single-shot checks below
+const hotWeapon = () => {
+  g.weaponCooldown = 0; g.weaponTemp = 0; g.weaponOffline = 0; g.weaponsOnline = true;
+};
+
+// firing on an innocent inside the station's protection zone is a crime
+g.crime = 0;
+g.player.pos = [0, 0, 1500];
+g.player.quat = [0, 0, 0, 1];
+const inZone = makeTarget({ role: 'trader', pos: [0, 0, 3300] });
+g.entities.push(inZone);
+hotWeapon();
+stepGame(g, { fire: true }, 1 / 60);
+assert.strictEqual(inZone.alive, true, 'the shot only wounds the trader');
+assert.ok(g.crime > 0, 'shooting an innocent in the protection zone is a crime');
+assert.strictEqual(legalStatus(g.crime), 'Offender', 'one offence makes you an Offender');
+
+// the same shot outside the zone is not (shortcut: no crime in open space)
+g.crime = 0;
+g.entities = g.entities.filter((e) => e.type === 'station');
+g.player.pos = [0, 0, 20000];
+const outZone = makeTarget({ role: 'trader', pos: [0, 0, 21800] });
+g.entities.push(outZone);
+hotWeapon();
+stepGame(g, { fire: true }, 1 / 60);
+assert.strictEqual(outZone.alive, true, 'the shot lands out there too');
+assert.strictEqual(g.crime, 0, 'the same shot outside the zone is not a crime');
+assert.strictEqual(legalStatus(g.crime), 'Clear');
+
+// killing the police is the one crime that makes you a Fugitive at once
+g.crime = 0;
+g.entities = g.entities.filter((e) => e.type === 'station');
+g.player.pos = [0, 0, 1500];
+const doomedCop = spawnPolice(g);
+doomedCop.pos = [0, 0, 2700];
+doomedCop.quat = [0, 0, 0, 1];
+doomedCop.energy = 60; // one beam volley takes it
+hotWeapon();
+stepGame(g, { fire: true }, 1 / 60);
+assert.strictEqual(doomedCop.alive, false, 'the viper is destroyed');
+assert.strictEqual(legalStatus(g.crime), 'Fugitive', 'killing the police makes you a Fugitive');
+
 // ---- docking + market -----------------------------------------------------
+g.crime = 40; // an offender flies home: docking is what clears the record
 g.entities = g.entities.filter((e) => e.type === 'station');
 g.player.pos = [0, 0, 300];
 g.player.speed = 20;
 stepGame(g, noInput(), 1 / 60);
 assert.strictEqual(g.phase, 'docked', 'slow near the station docks the ship');
+assert.strictEqual(g.crime, 0, 'docking forgives every crime');
 
 const rows = marketFor(g);
 assert.strictEqual(rows.length, 6, 'six commodities');

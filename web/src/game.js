@@ -26,15 +26,60 @@ const GOODS = [
 
 export { GOODS };
 
+// Combat rating: names from descriptions.plist "rating", thresholds from
+// Oolite's OODisplayRatingStringFromKillCount (8, 16, 32, 64, 128, 512,
+// 2560, 6400 kills). The port shows plain names — the plist decorates the top
+// two with stars, which do not fit the save-slot rows.
+export const RANKS = [
+  'Harmless', 'Mostly Harmless', 'Poor', 'Average', 'Above Average',
+  'Competent', 'Dangerous', 'Deadly', 'Elite',
+];
+const RANK_THRESHOLDS = [8, 16, 32, 64, 128, 512, 2560, 6400];
+
+export function rankName(kills) {
+  let i = 0;
+  while (i < RANK_THRESHOLDS.length && kills >= RANK_THRESHOLDS[i]) i++;
+  return RANKS[i];
+}
+
+// Legal status: Oolite's legalStatus points and display thresholds
+// (OODisplayStringFromLegalStatus: >= 1 offender, >= 51 fugitive), with the
+// three names from MISSING-FEATURES.md #2 ("Clear" — Oolite's own string
+// table says "Clean").
+export function legalStatus(crime) {
+  return crime >= 51 ? 'Fugitive' : crime >= 1 ? 'Offender' : 'Clear';
+}
+
+// shortcut: Oolite tracks a bounty-like legalStatus with reason-specific
+// values; this port uses one counter with the same display thresholds.
+const CRIME_FIRING = 10;       // shot an innocent ship / the police
+const CRIME_TRADER_KILL = 20;  // destroyed a trader
+const CRIME_POLICE_KILL = 64;  // Oolite: attacking the police
+const PROTECTION_ZONE = 5000;  // shortcut: station protection radius, metres
+
+export function addCrime(g, points) {
+  const before = legalStatus(g.crime);
+  g.crime += points;
+  const after = legalStatus(g.crime);
+  if (after !== before) {
+    pushMessage(g, `LEGAL STATUS: ${after.toUpperCase()}`, after === 'Fugitive' ? RED : YELLOW, 6);
+  }
+}
+
+function inProtectionZone(g, pos) {
+  return !!g.station && dist(pos, g.station.pos) <= PROTECTION_ZONE;
+}
+
 const RED = [1, 0, 0];
 const GREEN = [0, 1, 0];
 const BLUE = [0, 0, 1];
 const YELLOW = [1, 1, 0];
 
 // NPC rosters: combat ships hunt as hostile pirates, heavy haulers cross
-// space in peace. Speed / turn / energy / bounty come from the real shipdata
-// through def() below, so the heavy ships really are slow and tough.
-const PIRATE_KEYS = ['mamba', 'krait', 'cobramk1', 'asp', 'gecko', 'viper', 'constrictor'];
+// space in peace, and the Viper is the police (see spawnPolice below). Speed
+// / turn / energy / bounty come from the real shipdata through def() below,
+// so the heavy ships really are slow and tough.
+const PIRATE_KEYS = ['mamba', 'krait', 'cobramk1', 'asp', 'gecko', 'constrictor'];
 const TRADER_KEYS = ['python', 'anaconda', 'boa', 'boa-mk2', 'adder'];
 
 function shipData(g, key) { return g.shipdata[key]; }
@@ -166,6 +211,18 @@ export function spawnThargoid(g) {
   return s;
 }
 
+// The Viper is the police, not a pirate: it patrols while your record is
+// clean and turns on you the moment it is not (MISSING-FEATURES.md #2).
+export function spawnPolice(g) {
+  const d = def(g, 'viper');
+  const s = makeShip(g, 'viper', spawnAhead(g, 800, 2400), [0, 0, 0, 1],
+    { hostile: g.crime > 0, bounty: d.bounty || Math.round((d.max_energy || 256) / 5),
+      role: 'police' });
+  s.think = Math.random();
+  g.entities.push(s);
+  return s;
+}
+
 // ---------------------------------------------------------------------------
 export function createGame(assets) {
   const g = {
@@ -195,6 +252,7 @@ export function createGame(assets) {
     dialRoll: 0,
     dialPitch: 0,
     kills: 0,
+    crime: 0, // legal status points: 0 clear, >= 1 offender, >= 51 fugitive
     pirateSeq: 0,
     traderSeq: 0,
     equipmentTypes: assets.plists.equipment || [], // real equipment.plist rows
@@ -417,6 +475,11 @@ export function dock(g) {
   g.phase = 'docked';
   g.hudVisible = false;
   g.alert = 'green';
+  // Simplest rule for clearing a record: docking forgives every crime.
+  if (g.crime > 0) {
+    g.crime = 0;
+    pushMessage(g, 'LEGAL STATUS CLEAR — DOCKED', GREEN, 6);
+  }
   g.events.push({ type: 'docking' });
   pushMessage(g, `DOCKED AT ${SYSTEMS[g.systemIndex].name}`, GREEN, 6);
 }
@@ -434,6 +497,7 @@ export function launch(g) {
   g.hudVisible = true;
   pushMessage(g, 'LAUNCHED — GOOD LUCK, COMMANDER', GREEN, 6);
   if (!g.entities.some((e) => e.type === 'ship' && e.hostile)) spawnPirate(g);
+  spawnPolice(g); // a viper patrol waits outside the station
 }
 
 // selected: a system index from the short-range chart; without one the jump
@@ -489,6 +553,7 @@ export function jump(g, selected) {
   g.player.speed = 150;
   spawnPirate(g);
   spawnTrader(g);
+  spawnPolice(g);
   pushMessage(g, `WITCHSPACE — ARRIVED AT ${SYSTEMS[g.systemIndex].name}`, GREEN, 6);
   return true;
 }
@@ -523,6 +588,12 @@ function fireLaser(g) {
 }
 
 function damageShip(g, ship, amount, fromPlayer) {
+  // Crimes: hit the police anywhere, or any innocent ship inside the
+  // station's protection zone (MISSING-FEATURES.md #2).
+  if (fromPlayer && !ship.hostile
+      && (ship.role === 'police' || inProtectionZone(g, ship.pos))) {
+    addCrime(g, CRIME_FIRING);
+  }
   ship.energy -= amount;
   g.events.push({ type: 'hit' });
   if (ship.energy > 0) return;
@@ -531,6 +602,8 @@ function damageShip(g, ship, amount, fromPlayer) {
   g.events.push({ type: 'boom' });
   if (fromPlayer) {
     g.kills++;
+    if (ship.role === 'trader') addCrime(g, CRIME_TRADER_KILL);
+    else if (ship.role === 'police') addCrime(g, CRIME_POLICE_KILL);
     g.player.credits += ship.bounty;
     pushMessage(g, `SHIP DESTROYED — ${ship.bounty} CR BOUNTY`, YELLOW, 6);
   }
@@ -725,8 +798,21 @@ function updateNPC(e, g, dt) {
   const toPlayer = sub(p.pos, e.pos);
   const d = len(toPlayer);
 
-  if (e.role === 'trader') {
-    // Traders drift past on a straight line and never engage.
+  // The police hunt only a wanted commander: a viper patrols alongside you
+  // while your record is clean, and turns the moment it is not.
+  if (e.role === 'police') {
+    const wanted = g.crime > 0;
+    if (e.hostile !== wanted) {
+      e.hostile = wanted;
+      e.color = wanted ? RED : GREEN;
+      if (wanted) pushMessage(g, 'POLICE ATTACKING', RED, 5);
+    }
+  }
+
+  if (e.role === 'trader' || (e.role === 'police' && !e.hostile)) {
+    // Traders drift past on a straight line and never engage; a clean
+    // commander's police escort drifts by the same way (shortcut: no patrol
+    // routes — they fly a straight line like the traders do).
     if (d > 20000) { e.alive = false; return; }
     integrate(e, dt, 0.5);
     return;
@@ -885,10 +971,13 @@ export function stepGame(g, input, dt) {
 
   // --- respawn contacts ---------------------------------------------------
   g.spawnTimer -= dt;
-  const pirates = g.entities.filter((e) => e.hostile).length;
-  if (g.spawnTimer <= 0 && pirates < 2) {
+  const hostiles = g.entities.filter((e) => e.hostile).length;
+  const police = g.entities.filter((e) => e.role === 'police').length;
+  if (g.spawnTimer <= 0 && hostiles < 2) {
     g.spawnTimer = 12;
-    if (pirates === 0) spawnPirate(g);
+    // a wanted commander gets the police on their tail instead of a free spawn
+    if (g.crime > 0 && police === 0) spawnPolice(g);
+    else if (hostiles === 0) spawnPirate(g);
     // one hostile in three is the alien instead of a pirate
     else if (Math.random() < 0.6) (Math.random() < 0.33 ? spawnThargoid(g) : spawnPirate(g));
     if (!g.entities.some((e) => e.role === 'trader') && Math.random() < 0.5) spawnTrader(g);

@@ -41,6 +41,13 @@ function validate(data) {
   if (data.phase !== 'flight' && data.phase !== 'docked') return null;
   if (!Number.isInteger(data.systemIndex) || data.systemIndex < 0 || data.systemIndex > 255) return null;
   if (!num(data.kills) || data.kills < 0) return null;
+  // Legal status is optional so saves written before it existed still load;
+  // when present it must be a sane number, or the whole save is refused.
+  let crime = 0;
+  if (data.crime !== undefined) {
+    if (!num(data.crime) || data.crime < 0) return null;
+    crime = data.crime;
+  }
   const p = data.player;
   if (!p || typeof p !== 'object') return null;
   if (typeof p.shipKey !== 'string' || !p.shipKey) return null;
@@ -53,7 +60,8 @@ function validate(data) {
   if (p.equipment && typeof p.equipment === 'object' && !Array.isArray(p.equipment)) {
     for (const [k, v] of Object.entries(p.equipment)) if (v === true) player.equipment[k] = true;
   }
-  return { v: SAVE_VERSION, phase: data.phase, systemIndex: data.systemIndex, kills: data.kills, player };
+  return { v: SAVE_VERSION, phase: data.phase, systemIndex: data.systemIndex,
+    kills: data.kills, crime, player };
 }
 
 export function saveData(g) {
@@ -61,7 +69,8 @@ export function saveData(g) {
   const player = { shipKey: p.shipKey, cargo: { ...p.cargo } };
   for (const f of PLAYER_FIELDS) player[f] = p[f];
   player.equipment = { ...p.equipment };
-  return { v: SAVE_VERSION, phase: g.phase, systemIndex: g.systemIndex, kills: g.kills, player };
+  return { v: SAVE_VERSION, phase: g.phase, systemIndex: g.systemIndex,
+    kills: g.kills, crime: g.crime, player };
 }
 
 export function serializeSave(g) {
@@ -87,6 +96,7 @@ export function applySave(g, data) {
   g.hudVisible = d.phase === 'flight';
   g.systemIndex = d.systemIndex;
   g.kills = d.kills;
+  g.crime = d.crime;
   Object.assign(g.player, d.player);
 
   g.entities = g.entities.filter((e) => e.type === 'station');
@@ -111,6 +121,7 @@ export function applySave(g, data) {
     g.player.throttle = 0.45;
     spawnPirate(g);
     spawnTrader(g);
+    spawnPolice(g);
   }
   return true;
 }

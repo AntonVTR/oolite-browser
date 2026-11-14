@@ -10,7 +10,7 @@ import { loadAssets, SHIP_DEFS, resolveTextureName } from './assets.js';
 import {
   createGame, stepGame, launch, marketFor, buyGood, sellGood, cargoUsed,
   shipyardFor, tradeInValue, buyShip, shipName, zoomScanner,
-  equipmentFor, buyEquipment, spawnThargoid, SYSTEMS,
+  equipmentFor, buyEquipment, spawnThargoid, SYSTEMS, rankName,
 } from './game.js';
 import { hasSave, hasAnySlot, saveGame, loadGame, defaultStorage, slotInfo } from './save.js';
 import { openSlots, closeSlots } from './slots.js';
@@ -237,7 +237,7 @@ function buildMarketScreen() {
   el('dock-status').textContent =
     `Credits: ${p.credits.toFixed(1)} CR\n` +
     `Fuel: ${(p.fuel / 10).toFixed(1)} ly   Cargo: ${used}/${p.maxCargo} t\n` +
-    `Kills: ${game.kills}\n` +
+    `Kills: ${game.kills}   Rating: ${rankName(game.kills)}\n` +
     `${sys.description}\n` +
     `Cargo hold:\n${cargoLines}`;
 
@@ -363,7 +363,7 @@ function syncPhase() {
     el('touch').classList.add('hidden');
     audio.stopEngine();
     el('dead-stats').textContent =
-      `Credits ${game.player.credits.toFixed(1)} CR · Kills ${game.kills} · ` +
+      `Credits ${game.player.credits.toFixed(1)} CR · Kills ${game.kills} (${rankName(game.kills)}) · ` +
       `Reached ${SYSTEMS[game.systemIndex].name}`;
     el('dead').classList.remove('hidden');
   } else if (game.phase === 'flight') {
