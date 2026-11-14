@@ -11,7 +11,8 @@ Sources studied:
   versions, mission and equipment overview
 
 Checked against the port on 2026-11-13 (`web/src`, `README.md`). File references
-are to this repo.
+are to this repo. Items 1–3 were closed on 2026-11-14 (branch `iter/status`);
+their sections below keep the original description for the record.
 
 **Ranking:** P1 = core identity of the game, P2 = universe & travel depth,
 P3 = flight/combat depth, P4 = fidelity polish.
@@ -28,6 +29,10 @@ the Galactic Federal Centre and advance you Harmless → Mostly Harmless → Poo
 shown on the death and dock screens). No rank, no progression, no display on
 the status screen.
 
+**Done** (branch `iter/status`): `rankName()` in `web/src/game.js` maps kills
+through Oolite's thresholds (8 → 6400); the rank shows on the docked screen,
+the death screen, the save slots and the status screen (#3).
+
 ### 2. Legal status and police
 Original: status runs Clear → Offender → Fugitive; crimes (killing traders or
 police, selling illegal goods) make Vipers hunt you, and firing inside a
@@ -37,6 +42,13 @@ all — `damageShip()` credits the player for *any* kill with no penalty
 (`PIRATE_KEYS` in `web/src/game.js`) instead of being the police. This also
 gates illegal commodities (see #4).
 
+**Done** (branch `iter/status`): `legalStatus()` / `addCrime()` and
+`spawnPolice()` in `web/src/game.js` — firing on innocents in the protection
+zone and killing traders or police raise the record (Clear → Offender →
+Fugitive), Vipers patrol and turn on a wanted commander, docking forgives the
+record (shortcut), and `crime` travels in the save. Illegal commodities stay
+gated by #4.
+
 ### 3. Status screen with all fields (and one in flight)
 Original status page: commander name, Present system, Hyperspace system, Fuel,
 Cash, **Legal status**, **Rating** (ZX guide). Port: the docked screen shows
@@ -44,6 +56,12 @@ credits / fuel / cargo / kills / system description only
 (`buildMarketScreen()` in `web/src/main.js`), and there is **no status screen
 while flying** — you must dock to see your situation. "Hyperspace system"
 (nav target) is not tracked either: the chart jumps immediately.
+
+**Done** (branch `iter/status`): in-flight status overlay (`web/src/status.js`,
+`5` / STATUS) with present system, fuel, cash, legal status and rating, and
+the docked screen shows legal status too. Commander name (#19) and the
+hyperspace nav target are still missing — the chart jumps immediately, so
+there is no selection to persist.
 
 ### 4. Full commodity market (17 goods + legality)
 Original/Oolite: 17 commodities from `trade-goods.plist` (food, textiles,
