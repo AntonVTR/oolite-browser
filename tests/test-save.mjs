@@ -47,6 +47,7 @@ g.galaxy = 3;        // ...into another galaxy (#8)
 g.kills = 3;
 g.player.equipment = { EQ_ECM: true }; // fitted gear rides along
 g.player.pylons = 6;                   // and so do the bought missile racks
+g.commanderName = 'KIRA NORGATE';      // the name rides along with the save (#19)
 dock(g);
 assert.strictEqual(g.phase, 'docked');
 
@@ -63,6 +64,7 @@ assert.strictEqual(back.kills, 3);
 assert.strictEqual(back.player.credits, g.player.credits);
 assert.strictEqual(back.player.fuel, g.player.fuel);
 assert.strictEqual(back.player.shipKey, 'cobra3-player');
+assert.strictEqual(back.commanderName, 'KIRA NORGATE', 'the commander name survives the save (#19)');
 assert.deepStrictEqual(back.player.cargo, g.player.cargo, 'manifest survives');
 assert.deepStrictEqual(back.player.equipment, { EQ_ECM: true }, 'fitted equipment survives');
 assert.strictEqual(back.player.pylons, 6, 'bought missile pylons survive');
@@ -79,6 +81,11 @@ const preGalaxy = JSON.parse(serializeSave(g));
 delete preGalaxy.galaxy;
 assert.strictEqual(parseSave(JSON.stringify(preGalaxy)).galaxy, 1,
   'old saves load in galaxy 1');
+// a save from before the name existed loads as the classic commander
+const preName = JSON.parse(serializeSave(g));
+delete preName.name;
+assert.strictEqual(parseSave(JSON.stringify(preName)).name, 'JAMESON',
+  'old saves load unnamed as JAMESON');
 assert.strictEqual(cargoUsed(back), 4);
 assert.ok(back.entities.every((e) => e.type === 'station'),
   'world is rebuilt, not saved');
@@ -144,6 +151,8 @@ const bad = [
   JSON.stringify({ ...base, systemIndex: 7.5 }),
   JSON.stringify({ ...base, galaxy: 9 }),                     // no ninth galaxy
   JSON.stringify({ ...base, galaxy: 1.5 }),
+  JSON.stringify({ ...base, name: '' }),                      // never an empty name
+  JSON.stringify({ ...base, name: 42 }),
   JSON.stringify({ ...base, kills: -1 }),
   JSON.stringify({ ...base, player: null }),
   JSON.stringify({ ...base, player: { ...base.player, shipKey: '' } }),
@@ -184,6 +193,7 @@ assert.strictEqual(info.galaxy, 3, 'the slot row knows which galaxy it holds');
 assert.strictEqual(info.phase, 'docked');
 assert.strictEqual(info.credits, g.player.credits);
 assert.strictEqual(info.kills, g.kills);
+assert.strictEqual(info.name, 'KIRA NORGATE', 'the slot row knows the commander it holds (#19)');
 assert.strictEqual(slotInfo(1, store), null, 'the other slots stay empty');
 
 // a slot loads back into a fresh game

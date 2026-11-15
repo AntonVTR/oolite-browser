@@ -50,7 +50,8 @@ function render() {
   for (let i = 0; i < SLOT_COUNT; i++) {
     const info = slotInfo(i, storageRef);
     const contents = info
-      ? `${galaxySystems(info.galaxy || 1)[info.systemIndex].name} · ${info.credits.toFixed(1)} CR · ` +
+      ? `${info.name || 'JAMESON'} · ${galaxySystems(info.galaxy || 1)[info.systemIndex].name} · ` +
+        `${info.credits.toFixed(1)} CR · ` +
         `${info.phase.toUpperCase()} · ${info.kills} kills · ${rankName(info.kills)}`
       : 'empty';
     const action = saving

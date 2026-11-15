@@ -532,6 +532,7 @@ export function createGame(assets) {
     dialPitch: 0,
     kills: 0,
     crime: 0, // legal status points: 0 clear, >= 1 offender, >= 51 fugitive
+    commanderName: 'JAMESON', // asked for on a fresh commander, saved (#19)
     mission: missionState(), // the Galactic Navy chain (#7), travels in the save
     pirateSeq: 0,
     traderSeq: 0,

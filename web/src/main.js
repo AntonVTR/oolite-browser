@@ -285,6 +285,7 @@ function buildMarketScreen() {
       return `  ${r ? r.name : k}: ${v} ${r ? r.unit : 't'}`;
     }).join('\n') || '  (empty)';
   el('dock-status').textContent =
+    `Commander: ${game.commanderName || 'JAMESON'}\n` +
     `Credits: ${p.credits.toFixed(1)} CR\n` +
     `Fuel: ${(p.fuel / 10).toFixed(1)} ly   Cargo: ${used}/${p.maxCargo} t\n` +
     `Kills: ${game.kills}   Rating: ${rankName(game.kills)}\n` +
@@ -412,6 +413,16 @@ function wireDockScreen() {
 
 function hideOverlays() {
   for (const id of ['title', 'docked', 'dead', 'loading']) el(id).classList.add('hidden');
+}
+
+// A fresh commander is asked for a name (#19), like the original's
+// LOAD NEW COMMANDER. Cancel or an empty line keeps the default; the name
+// rides along with every save from then on.
+function nameNewCommander() {
+  let answer = null;
+  try { answer = window.prompt('LOAD NEW COMMANDER — your name?', game.commanderName); } catch (e) { /* no prompt here */ }
+  const name = (answer || '').trim().slice(0, 24);
+  game.commanderName = name || 'JAMESON';
 }
 
 function syncPhase() {
@@ -677,6 +688,7 @@ async function main() {
 
   el('btnStart').addEventListener('click', () => {
     audio.unlock();
+    nameNewCommander();
     launchTrip(game); // the ten-second ride out of the tube (#6)
     hideOverlays();
     el('touch').classList.remove('hidden');
@@ -686,6 +698,7 @@ async function main() {
     game.easyDock = easyBox.checked; // the checkbox survives a restart
     prevPhase = 'title';
     audio.unlock();
+    nameNewCommander();
     launchTrip(game);
     hideOverlays();
     el('touch').classList.remove('hidden');
