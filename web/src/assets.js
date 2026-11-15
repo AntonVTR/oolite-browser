@@ -23,6 +23,10 @@ export const SHIP_DEFS = {
   constrictor: { shipKey: 'oolite_template_constrictor', model: 'oolite_constrictor' },
   // the hostile alien, with its real warship mesh and hull texture
   thargoid: { shipKey: 'oolite_template_thargoid', model: 'oolite_thargoid' },
+  // free-floating loot the fuel scoops pick up (#11): cargo canisters dropped
+  // by kills and escape capsules left behind by wrecks
+  barrel: { shipKey: 'oolite_template_barrel', model: 'oolite_barrel' },
+  escapecapsule: { shipKey: 'oolite_template_escape-capsule', model: 'oolite_escape_capsule' },
   coriolis: {
     shipKey: 'oolite_template_coriolis-station',
     model: 'oolite_coriolis',

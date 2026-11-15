@@ -251,6 +251,93 @@ export function spawnPolice(g) {
   return s;
 }
 
+// ---- free-floating loot (#11) ---------------------------------------------
+// Kills leave cargo canisters behind and wrecks may leave an escape capsule
+// (MISSING-FEATURES.md #11); both are type:'cargo' entities the fuel scoops
+// pick up. Upstream models them as ShipEntity debris (cargopod /
+// escape-capsule roles) that gets tractored in; here they drift and tumble
+// until a scoop collects them.
+function tumbleSpin() {
+  const a = [Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5];
+  const l = Math.hypot(a[0], a[1], a[2]) || 1;
+  return { axis: [a[0] / l, a[1] / l, a[2] / l], rate: (Math.random() - 0.5) * 1.2 };
+}
+
+function makeDebris(g, key, name, pos) {
+  const t = tumbleSpin();
+  return {
+    type: 'cargo',
+    shipKey: key,
+    name,
+    role: 'cargo',
+    pos: pos.slice(),
+    quat: [0, 0, 0, 1],
+    vel: [(Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8],
+    radius: radiusOf(g, key),
+    tumbleAxis: t.axis,
+    tumbleRate: t.rate,
+    alive: true,
+    color: [1, 1, 1], // unpowered debris reads white on the scanner
+  };
+}
+
+export function spawnCargo(g, pos, good, qty) {
+  const c = makeDebris(g, 'barrel', 'Cargo Canister', pos);
+  c.cargo = { good, qty };
+  g.entities.push(c);
+  return c;
+}
+
+export function spawnEscapeCapsule(g, pos) {
+  const c = makeDebris(g, 'escapecapsule', 'Escape Capsule', pos);
+  c.cargo = null; // the crew is the payload: scooping it is a rescue
+  g.entities.push(c);
+  return c;
+}
+
+// What a wreck leaves behind: one or two canisters of cargo (Oolite's
+// releaseCargoPodsDebris rolls likely_cargo per ship) and — when the hull
+// says so — an escape capsule (shipdata has_escape_pod: a probability on
+// many hulls, yes/no on others). shortcut: the port's canisters carry the
+// goods directly instead of Oolite's per-pod commodity rolls.
+function releaseDebris(g, ship) {
+  const at = () => add(ship.pos, [
+    (Math.random() - 0.5) * 120, (Math.random() - 0.5) * 120, (Math.random() - 0.5) * 120,
+  ]);
+  const n = 1 + (Math.random() < 0.5 ? 1 : 0);
+  for (let i = 0; i < n; i++) {
+    const good = g.goods[Math.floor(Math.random() * g.goods.length)].key;
+    spawnCargo(g, at(), good, 1 + Math.floor(Math.random() * 3));
+  }
+  const ep = def(g, ship.shipKey).has_escape_pod;
+  const chance = typeof ep === 'number' ? ep : ep ? 1 : 0;
+  if (chance > 0 && Math.random() < chance) spawnEscapeCapsule(g, at());
+}
+
+// EQ_FUEL_SCOOPS collects loose cargo too (#11): a canister or escape
+// capsule within SCOOP_RANGE ahead of the nose is taken on the spot —
+// canisters need hold space, an escape capsule is a rescue and always fits.
+function tryScoop(g, debris) {
+  if (!g.hasEquipment('EQ_FUEL_SCOOPS')) return;
+  const p = g.player;
+  const to = sub(debris.pos, p.pos);
+  if (len(to) > SCOOP_RANGE) return;
+  if (dot(to, quatRotate(p.quat, [0, 0, 1])) <= 0) return; // scoops face forward
+  if (debris.cargo) {
+    const { good, qty } = debris.cargo;
+    if (cargoUsed(g) + qty > p.maxCargo) {
+      if (!g.messages.some((m) => m.text === 'HOLD FULL')) pushMessage(g, 'HOLD FULL', RED, 3);
+      return;
+    }
+    p.cargo[good] = (p.cargo[good] || 0) + qty;
+    pushMessage(g, `SCOOPED ${qty} ${COMMODITY_NAMES[good] || good}`.toUpperCase(), GREEN, 4);
+  } else {
+    pushMessage(g, 'ESCAPE POD RESCUED', GREEN, 4);
+  }
+  g.scoopT = 1;
+  debris.alive = false;
+}
+
 // The sun: main.js draws it as a sphere at exactly this spot, and the fuel
 // scoops only work inside its corona, so the simulation carries the position
 // too. Distance is measured from the sun's centre.
@@ -258,6 +345,12 @@ export const SUN_POS = [-30000, 25000, -50000];
 export const SUN_R = 9000;
 const SUN_CORONA = SUN_R * 1.5; // scoop range from the centre, metres
 const SCOOP_RATE = 20;          // fuel units (0.1 ly) per second while skimming
+// Cargo pickup range for EQ_FUEL_SCOOPS: a canister this close ahead of the
+// nose goes straight into the hold.
+// shortcut: Oolite tractors cargo in from further out with an animation and
+// only scoops on the ship's underside; the port collects within 200 m in
+// front of the nose, which a touch stick can actually line up.
+const SCOOP_RANGE = 200;
 
 // ---------------------------------------------------------------------------
 export function createGame(assets) {
@@ -314,6 +407,8 @@ export function createGame(assets) {
     station: null,
     autoDock: false, // a fitted docking computer is flying the ship
     scooping: false, // the fuel scoops are drinking at the sun
+    scoopStatus: 'none', // scoop dial (#11): none | okay | active | full
+    scoopT: 0,     // seconds since a canister went into the hold
     spawnTimer: 0,
     weaponCooldown: 0,
     weaponTemp: 0,
@@ -1045,6 +1140,7 @@ function damageShip(g, ship, amount, fromPlayer) {
   ship.alive = false;
   g.explosions.push({ pos: ship.pos.slice(), life: 0.9, maxLife: 0.9, size: ship.radius * 3 });
   g.events.push({ type: 'boom' });
+  releaseDebris(g, ship); // canisters and an escape capsule for the scoops (#11)
   if (fromPlayer) {
     g.kills++;
     if (ship.role === 'trader') addCrime(g, CRIME_TRADER_KILL);
@@ -1516,10 +1612,30 @@ export function stepGame(g, input, dt) {
       e.quat = quatNormalize(quatMul(quatAxisAngle(0, 1, 0, e.spin * dt), e.quat));
       continue;
     }
+    if (e.type === 'cargo') {
+      // loose loot drifts and tumbles until a scoop collects it (#11)
+      e.pos = add(e.pos, scale(e.vel, dt));
+      e.quat = quatNormalize(quatMul(
+        quatAxisAngle(e.tumbleAxis[0], e.tumbleAxis[1], e.tumbleAxis[2], e.tumbleRate * dt),
+        e.quat));
+      tryScoop(g, e);
+      continue;
+    }
     updateNPC(e, g, dt);
   }
   g.entities = g.entities.filter((e) => e.alive);
   updateMissiles(g, dt);
+
+  // The scoop dial (#11), Oolite's dialFuelScoopStatus: active while the
+  // scoops are working (sun fuel or a canister going in), full when the hold
+  // will not take more, okay when they are free to work, hidden unscooped.
+  // Computed after the entity pass so a canister taken this frame already
+  // reads active.
+  g.scoopT = Math.max(0, g.scoopT - dt);
+  g.scoopStatus = !g.hasEquipment('EQ_FUEL_SCOOPS') ? 'none'
+    : (skimming || g.scoopT > 0) ? 'active'
+    : cargoUsed(g) >= p.maxCargo ? 'full'
+    : 'okay';
 
   // --- respawn contacts ---------------------------------------------------
   g.spawnTimer -= dt;
@@ -1549,6 +1665,7 @@ export function stepGame(g, input, dt) {
 
   // --- collisions ---------------------------------------------------------
   for (const e of g.entities) {
+    if (e.type === 'cargo') continue; // loose cargo is scooped, not crashed into
     const d = dist(e.pos, p.pos);
     if (d < e.radius + p.radius) {
       // Real docking (easy mode off): a slow, rolled-in, lined-up approach

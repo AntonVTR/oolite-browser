@@ -26,6 +26,9 @@ MODELS=(
   oolite_coriolis_dock
   oolite_coriolis_faceplate
   oolite_coriolis_tris
+  # free-floating loot the fuel scoops collect (#11)
+  oolite_barrel
+  oolite_escape_capsule
 )
 for m in "${MODELS[@]}"; do
   cp "$RES/Models/$m.dat" "$OUT/models/$m.dat"
@@ -58,6 +61,8 @@ TEXTURES=(
   oolite_coriolis_dock_diffuse.png
   oolite_coriolis_faceplate_diffuse.png
   oolite_coriolis_tris_diffuse.png
+  oolite_barrel_diffuse.png
+  oolite_escape_capsule_diffuse.png
 )
 for t in "${TEXTURES[@]}"; do
   if [ ! -f "$OUT/textures/$t" ] || [ "$RES/Textures/$t" -nt "$OUT/textures/$t" ]; then

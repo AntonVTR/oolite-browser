@@ -69,6 +69,12 @@ gyro, keyboard/mouse and gamepad.
   docked screen with an ACCEPT button, progress shows in the HUD messages
   across hyperspace jumps, and each job pays cash on completion
   (`web/src/missions.js`).
+- **Fuel scooping**: besides skimming the sun's corona, the scoops collect
+  what kills leave behind — cargo canisters from every wreck, and an escape
+  capsule from hulls that carry one (scooping it is a rescue) — within 200 m
+  ahead of the nose while the hold has room. The HUD's scoop dial (Oolite's
+  `drawScoopStatus:`) shows it: steady green when ready, breathing while the
+  scoops work, dark green with a red foot when the hold is full.
 
 ## Not ported yet
 
@@ -167,6 +173,7 @@ node tests/test-save.mjs      # auto-save round trip, bad saves rejected, manual
 node tests/test-missions.mjs  # Navy missions: offer order, accept, jump progress, reward, save
 node tests/test-chart.mjs     # short/long chart views, system data screen, fuel ring, jump range
 node tests/test-travel.mjs    # galactic hyperspace and witchspace: crossing, stranding, escape
+node tests/test-scoop.mjs     # fuel scooping: canisters, escape capsules, the scoop dial
 python3 -m http.server 8099 --directory web   # local server
 # headless smoke test (console errors + screenshots):
 google-chrome --headless=new --virtual-time-budget=6000 --screenshot=/tmp/shot.png \

@@ -265,6 +265,23 @@ corona); still open are the `drawScoopStatus:` HUD dial (a no-op stub in
 `web/src/hud.js`, feedback is by message only) and canisters dropping from
 kills, so there is nothing yet to pick up.
 
+**Done** (branch `iter/space`): every kill now leaves loot — `releaseDebris()`
+in `web/src/game.js` drops one or two cargo canisters on the wreck, and hulls
+whose shipdata `has_escape_pod` says so (a probability on most ships) also
+leave an escape capsule; both drift and tumble on their real Oolite meshes
+(`oolite_barrel`, `oolite_escape_capsule`) as `type: 'cargo'` entities. With
+`EQ_FUEL_SCOOPS` fitted, anything within 200 m **ahead of the nose** is taken
+on the spot: canisters add their tonnes to the hold (`HOLD FULL` turns them
+away), an escape capsule is a rescue that reports `ESCAPE POD RESCUED` and
+carries no cargo. `drawScoopStatus:` is implemented from Oolite's
+`HeadUpDisplay.m`: three stacked chevrons — steady green while the scoops are
+free, breathing while they work (sun fuel or a canister going in), dark green
+with a red foot when the hold is full — hidden entirely without the scoops,
+driven by the new `g.scoopStatus` state (`none | okay | active | full`).
+**shortcut**: no tractor-beam animation and no underside-only pickup rule —
+Oolite tractors cargo in from further out and only on the ship's lower side;
+the port collects within 200 m in front, which a touch stick can line up.
+
 ### 12. Asteroid mining
 Original: mining is one of the four income routes, with a mining laser and
 rocks to break up (Wikipedia; Archimedes version shows miners at work). Port:
