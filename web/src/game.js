@@ -122,6 +122,11 @@ const POLICE_ENGAGE = 10000;  // the protection radius a clean viper patrols
 const PASSENGER_FLEE = 4000;  // shuttles run from a hostile on sight
 const FLEE_RANGE = 15000;     // keep running while the threat is this close
 const MAX_PEACEFUL = 2;       // one hauler and one shuttle: inhabited, not crowded
+// A gentler launch: the first hostile finishLaunch puts in the sky waits out
+// this grace before it picks a foe, and holds fire a beat longer, so the ride
+// out of the tube does not end with laser fire in your face.
+const LAUNCH_GRACE = 10;      // seconds before that first hostile engages
+const LAUNCH_FIRE_DELAY = 1.5; // extra seconds before its very first shot
 
 function shipData(g, key) { return g.shipdata[key]; }
 // Ship stats live in templates. Player hulls are thin layers over the real
@@ -187,6 +192,7 @@ function makeShip(g, key, pos, quat, opts = {}) {
     // game — one roll per ship, so badly damaged pirates break off unevenly.
     breakOffAt: 0.03 + Math.random() * 0.07,
     fireCooldown: 0,
+    engageDelay: 0, // seconds left before a launch-graced hostile picks a foe
     think: 0,
     strafePhase: Math.random() * Math.PI * 2,
     alive: true,
@@ -256,7 +262,7 @@ export function spawnPirate(g) {
   const d = def(g, key);
   // Most shipdata templates carry no bounty; scale those by hull energy.
   const bounty = d.bounty || Math.round((d.max_energy || 256) / 5);
-  const s = makeShip(g, key, spawnAhead(g, 700, 2000), [0, 0, 0, 1],
+  const s = makeShip(g, key, spawnAhead(g, 2000, 4000), [0, 0, 0, 1],
     { hostile: true, bounty, role: 'pirate' });
   s.think = Math.random();
   g.entities.push(s);
@@ -283,7 +289,7 @@ export function spawnPassenger(g) {
 
 export function spawnThargoid(g) {
   const d = def(g, 'thargoid');
-  const s = makeShip(g, 'thargoid', spawnAhead(g, 900, 2600), [0, 0, 0, 1],
+  const s = makeShip(g, 'thargoid', spawnAhead(g, 2000, 4000), [0, 0, 0, 1],
     { hostile: true, bounty: d.bounty || 100, role: 'thargoid' });
   s.think = Math.random();
   s.missileCd = 8 + Math.random() * 12; // alien warships shoot missiles early
@@ -1078,7 +1084,11 @@ function finishLaunch(g) {
   g.player.speed = 150;
   g.player.throttle = 0.45;
   pushMessage(g, 'LAUNCHED — GOOD LUCK, COMMANDER', GREEN, 6);
-  if (!g.entities.some((e) => e.type === 'ship' && e.hostile)) spawnPirate(g);
+  if (!g.entities.some((e) => e.type === 'ship' && e.hostile)) {
+    const first = spawnPirate(g);
+    first.engageDelay = LAUNCH_GRACE;
+    first.fireCooldown = LAUNCH_FIRE_DELAY + Math.random() * LAUNCH_FIRE_DELAY;
+  }
   // Entities survive docking, so an unguarded spawn would stack one more
   // viper on every dock/launch cycle — same guard as the pirate above.
   if (!g.entities.some((e) => e.role === 'police')) spawnPolice(g);
@@ -1897,6 +1907,15 @@ function updateNPC(e, g, dt) {
     if (d > 20000) { e.alive = false; return; }
     steerToward(e, add(e.pos, sub(e.pos, p.pos)), dt, e.pitchRate);
     integrate(e, dt, 1);
+    return;
+  }
+
+  // The launch grace: the first hostile out here drifts for a few seconds
+  // before it chooses a foe, so a fresh commander is not fired on at once.
+  if (e.engageDelay > 0) {
+    e.engageDelay -= dt;
+    if (d > 20000) { e.alive = false; return; }
+    integrate(e, dt, 0.5);
     return;
   }
 
