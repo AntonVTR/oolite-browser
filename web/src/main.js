@@ -12,7 +12,7 @@ import {
   shipyardFor, tradeInValue, buyShip, shipName, zoomScanner, jump,
   equipmentFor, buyEquipment, spawnThargoid, systemsIn, rankName, legalStatus,
   pushMessage, spawnStation, SUN_POS, SUN_R, PLANET_POS, PLANET_R,
-  setView, cycleView, cycleLaserMount,
+  setView, cycleView, cycleLaserMount, jdrive,
 } from './game.js';
 import { galaxySystems } from './galaxy.js';
 import { missionView, acceptMission } from './missions.js';
@@ -235,6 +235,8 @@ function playEvents() {
       case 'sell': audio.play('sell', { volume: 0.6 }); break;
       case 'docking': audio.play('guiclick', { volume: 0.6 }); break;
       case 'jump': audio.play('beep', { volume: 0.7, rate: 0.6 }); break;
+      case 'jdrive': audio.play('beep', { volume: 0.7, rate: 1.7 }); break; // blocked (#20)
+      case 'jdriveHop': audio.play('beep', { volume: 0.5, rate: 0.8 }); break;
       default: break;
     }
   }
@@ -671,6 +673,7 @@ async function main() {
   window.addEventListener('keydown', (e) => {
     if (e.repeat) return; // one press, one action — holding C must not flicker the chart
     if (e.code === 'KeyJ') jumpRequested = true;
+    if (e.code === 'KeyH') jdrive(game); // the ZX in-system J-drive (#20)
     if (e.code === 'KeyZ') zoomScanner(game, e.shiftKey ? -1 : 1); // Oolite z / Z
     if (e.code === 'KeyC') toggleChartUI(); // Oolite F is full throttle here
     if (e.code === 'Digit5') toggleStatusUI(); // Oolite's status-screen key
@@ -735,6 +738,9 @@ async function main() {
     if (query.has('view')) setView(game, query.get('view'));
     // ?thargoid puts the alien warship ahead of the nose (headless smoke test)
     if (query.has('thargoid')) spawnThargoid(game);
+    // ?jdrive presses the in-system J-drive once (headless smoke, #20): with
+    // the station right ahead the drive must refuse, warn and stay put
+    if (query.has('jdrive')) window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyH' }));
     // ?chart opens the short-range chart, ?chart=long the whole galaxy (#9)
     if (query.has('chart')) {
       toggleChartUI(query.get('chart') === 'long' ? 'long' : undefined);
