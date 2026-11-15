@@ -735,6 +735,24 @@ function damageShip(g, ship, amount, fromPlayer) {
   }
 }
 
+// ---- escape pod ------------------------------------------------------------
+// The pod tows the commander back to the station: the ship and everything
+// fitted to it survive, the manifest does not (MISSING-FEATURES.md #5).
+function escapePod(g) {
+  const p = g.player;
+  p.cargo = {};
+  p.energy = p.maxEnergy;
+  p.fwdShield = p.maxShield;
+  p.aftShield = p.maxShield;
+  g.explosions.push({ pos: p.pos.slice(), life: 1.2, maxLife: 1.2, size: p.radius * 4 });
+  g.events.push({ type: 'boom' });
+  g.missiles = [];
+  g.shots = [];
+  g.target = null;
+  dock(g);
+  pushMessage(g, 'ESCAPE POD — SHIP INTACT, CARGO LOST', YELLOW, 6);
+}
+
 function damagePlayer(g, amount) {
   const p = g.player;
   if (p.fwdShield > 0) {
@@ -752,6 +770,8 @@ function damagePlayer(g, amount) {
   g.alert = 'red';
   g.events.push({ type: 'hit' });
   if (p.energy <= 0) {
+    // A fitted escape pod trades destruction for a rescue: same ship, no cargo.
+    if (p.equipment.EQ_ESCAPE_POD) { escapePod(g); return; }
     p.alive = false;
     g.explosions.push({ pos: p.pos.slice(), life: 1.2, maxLife: 1.2, size: p.radius * 4 });
     g.events.push({ type: 'boom' });
