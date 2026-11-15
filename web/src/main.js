@@ -1,7 +1,7 @@
 // Browser entry point: loads Oolite's real assets, builds GPU resources and
 // runs the loop (input → game.js → renderer → HUD → audio).
 
-import { Renderer } from './render.js';
+import { Renderer, viewQuat } from './render.js';
 import { Hud } from './hud.js';
 import { GameAudio } from './audio.js';
 import { setupKeyboard, setupMouse, setupGamepad, updateCtrl } from './controls.js';
@@ -11,7 +11,7 @@ import {
   createGame, stepGame, launch, launchTrip, marketFor, buyGood, sellGood, cargoUsed,
   shipyardFor, tradeInValue, buyShip, shipName, zoomScanner, jump,
   equipmentFor, buyEquipment, spawnThargoid, systemsIn, rankName, legalStatus,
-  pushMessage, spawnStation, SUN_POS, SUN_R,
+  pushMessage, spawnStation, SUN_POS, SUN_R, setView, cycleView,
 } from './game.js';
 import { galaxySystems } from './galaxy.js';
 import { missionView, acceptMission } from './missions.js';
@@ -142,7 +142,9 @@ function drawEntity(e) {
 
 function renderScene() {
   const p = game.player;
-  renderer.beginFrame(p.pos, p.quat);
+  // The view direction (#14) turns the camera about the ship's axes; the
+  // sim, the laser and the target logic all stay on the ship's nose.
+  renderer.beginFrame(p.pos, viewQuat(game.view, p.quat));
   const sunDir = renderer.sunDirView(SUN_POS);
 
   renderer.drawStars(stars);
@@ -199,7 +201,9 @@ function updateTargetReticle() {
   if (!t) { game.target = null; return; }
   const a = project(t.pos);
   if (!a) { t.onScreen = false; return; }
-  const right = quatRotate(game.player.quat, [1, 0, 0]);
+  // radius estimate along the camera's own starboard, so the box keeps its
+  // size in the side and aft views too
+  const right = quatRotate(renderer.camQuat, [1, 0, 0]);
   const b = project(add(t.pos, vscale(right, t.radius)));
   const w = glCanvas.clientWidth, h = glCanvas.clientHeight;
   t.onScreen = a.x > -0.15 && a.x < 1.15 && a.y > -0.15 && a.y < 1.15;
@@ -613,12 +617,31 @@ async function main() {
   });
   el('touch').querySelector('.buttons').insertBefore(btnStatus, el('btnFire'));
 
+  // VIEW button beside them: cycles front → aft → port → starboard, the
+  // touch twin of the 1–4 keys (#14).
+  const btnView = document.createElement('button');
+  btnView.id = 'btnView';
+  btnView.className = 'ctl';
+  btnView.textContent = 'VIEW';
+  btnView.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    if (game.phase === 'flight') cycleView(game);
+  });
+  el('touch').querySelector('.buttons').insertBefore(btnView, el('btnFire'));
+
   window.addEventListener('keydown', (e) => {
     if (e.repeat) return; // one press, one action — holding C must not flicker the chart
     if (e.code === 'KeyJ') jumpRequested = true;
     if (e.code === 'KeyZ') zoomScanner(game, e.shiftKey ? -1 : 1); // Oolite z / Z
     if (e.code === 'KeyC') toggleChartUI(); // Oolite F is full throttle here
     if (e.code === 'Digit5') toggleStatusUI(); // Oolite's status-screen key
+    // view keys 1–4: front / aft / left / right, in flight (#14)
+    if (game.phase === 'flight') {
+      if (e.code === 'Digit1') setView(game, 'front');
+      if (e.code === 'Digit2') setView(game, 'aft');
+      if (e.code === 'Digit3') setView(game, 'port');
+      if (e.code === 'Digit4') setView(game, 'starboard');
+    }
     if (e.code === 'Escape') { closeChart(); closeStatus(); closeSlots(); }
   });
 
@@ -665,6 +688,8 @@ async function main() {
     // ?zoom=N sets the scanner zoom (headless smoke test for the radar zoom)
     const z = Number(query.get('zoom'));
     if (query.has('zoom') && z >= 1 && z <= 5) game.scannerZoom = Math.round(z);
+    // ?view=aft|port|starboard starts in another view (headless smoke, #14)
+    if (query.has('view')) setView(game, query.get('view'));
     // ?thargoid puts the alien warship ahead of the nose (headless smoke test)
     if (query.has('thargoid')) spawnThargoid(game);
     // ?chart opens the short-range chart, ?chart=long the whole galaxy (#9)

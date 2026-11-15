@@ -3,6 +3,7 @@
 
 import {
   mat4, mat4Mul, mat4Perspective, mat4FromQuatPos, mat4FromQuatPosScale, mat4InvertRigid,
+  quatMul, quatAxisAngle,
 } from './math.js';
 
 const MESH_VS = `
@@ -153,6 +154,20 @@ export function buildView(out, pos, quat) {
   out[10] = -out[10];
   out[14] = -out[14];
   return out;
+}
+
+// Camera orientation for a view direction (#14): the ship's attitude with a
+// turn about the ship's own axes applied on the right — aft looks down the
+// tail, port/starboard out of the side canopies, up stays up in all four.
+const VIEW_ROT = {
+  front: [0, 0, 0, 1],
+  aft: quatAxisAngle(0, 1, 0, Math.PI),
+  port: quatAxisAngle(0, 1, 0, -Math.PI / 2),
+  starboard: quatAxisAngle(0, 1, 0, Math.PI / 2),
+};
+
+export function viewQuat(view, shipQuat) {
+  return quatMul(shipQuat, VIEW_ROT[view] || VIEW_ROT.front);
 }
 
 export class Renderer {

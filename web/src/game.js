@@ -461,6 +461,7 @@ export function createGame(assets) {
     hudVisible: false,
     scannerZoom: 1, // radar zoom, 1×…5× (SCANNER_ZOOM_LEVELS)
     showCrosshair: true,
+    view: 'front', // camera view (#14): front | aft | port | starboard
     weaponsOnline: true,
     weaponKey: 'WEAPON_BEAM_LASER',
     systemIndex: 7, // Lave — the classic starting system
@@ -566,6 +567,20 @@ export function createGame(assets) {
 
 export function cargoUsed(g) {
   return Object.values(g.player.cargo).reduce((s, v) => s + v, 0);
+}
+
+// ---- views (#14) -----------------------------------------------------------
+// The original's four view directions (keys 1–4). This is only the selector;
+// the camera turn itself is render.js viewQuat(), applied on top of the
+// ship's own attitude so every view keeps the horizon where it belongs.
+export const VIEWS = ['front', 'aft', 'port', 'starboard'];
+
+export function setView(g, v) {
+  if (VIEWS.includes(v)) g.view = v;
+}
+
+export function cycleView(g) {
+  g.view = VIEWS[(VIEWS.indexOf(g.view) + 1) % VIEWS.length];
 }
 
 // Scanner zoom, 1×…5× — Oolite's z / Z keys (SCANNER_ZOOM_LEVELS 5). dir +1

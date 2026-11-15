@@ -495,7 +495,8 @@ export class Hud {
   // ---- crosshair -----------------------------------------------------------
   drawCrosshair() {
     const g = this.g;
-    if (!g.showCrosshair) return;
+    // only the forward view points where the laser goes (#14)
+    if (!g.showCrosshair || (g.view && g.view !== 'front')) return;
     const scale = this.hud.crosshair_scale || 32;
     const defs = this.crosshairs[g.weaponKey] || this.crosshairs.OTHER;
     if (!defs) return;
