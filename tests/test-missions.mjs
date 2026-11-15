@@ -1,5 +1,6 @@
 // Mission checks (MISSING-FEATURES #7): the Navy chain offer order, accepting
 // a mission, progress across hyperspace jumps, the reward on completion, and
+// the save round trip (including saves from before missions existed).
 // Run: node tests/test-missions.mjs
 import assert from 'node:assert';
 import { readFileSync } from 'node:fs';
@@ -14,6 +15,8 @@ const {
   MISSIONS, missionState, offerMission, acceptMission, activeMission,
   missionSpawnKey, missionOnJump, missionOnKill, missionOnDock, missionView,
 } = await import(join(root, 'web/src/missions.js'));
+const { serializeSave, parseSave, applySave, SAVE_VERSION } =
+  await import(join(root, 'web/src/save.js'));
 
 const read = (p) => readFileSync(join(root, 'web/assets', p), 'utf8');
 const shipdata = parsePlist(read('config/shipdata.plist'));
@@ -109,5 +112,46 @@ assert.strictEqual(offerMission(idle).id, 'conhunt', 'and it is the hunt');
 assert.strictEqual(missionView(g2), null, 'the docked screen hides the panel when done');
 idle.mission.active = 'conhunt';
 assert.strictEqual(missionOnJump(idle), null, 'a hunt does not count jumps');
+
+// ---- save round trip --------------------------------------------------------
+const s = newGame();
+s.phase = 'docked';
+s.mission.active = 'thargplans';
+s.mission.jumps = 2;
+s.mission.done = ['conhunt'];
+const back = newGame();
+assert.strictEqual(applySave(back, parseSave(serializeSave(s))), true, 'save applies');
+assert.deepStrictEqual(back.mission, { active: 'thargplans', jumps: 2, done: ['conhunt'] },
+  'mission state survives the round trip');
+assert.strictEqual(parseSave(serializeSave(s)).v, SAVE_VERSION);
+
+// a save from before missions existed still loads, with a clean slate
+const legacy = JSON.parse(serializeSave(s));
+delete legacy.mission;
+assert.deepStrictEqual(parseSave(JSON.stringify(legacy)).mission, missionState(),
+  'old saves load without a mission');
+const legacyBack = newGame();
+legacyBack.mission = { active: 'conhunt', jumps: 1, done: ['thargplans'] };
+assert.strictEqual(applySave(legacyBack, parseSave(JSON.stringify(legacy))), true);
+assert.deepStrictEqual(legacyBack.mission, missionState(), 'and replace the stale one');
+
+// corrupt mission state refuses the whole save
+const base = JSON.parse(serializeSave(s));
+const bad = [
+  JSON.stringify({ ...base, mission: null }),
+  JSON.stringify({ ...base, mission: 'conhunt' }),
+  JSON.stringify({ ...base, mission: { ...base.mission, active: 'bogus' } }),
+  JSON.stringify({ ...base, mission: { ...base.mission, active: 42 } }),
+  JSON.stringify({ ...base, mission: { ...base.mission, jumps: -1 } }),
+  JSON.stringify({ ...base, mission: { ...base.mission, jumps: 'two' } }),
+  JSON.stringify({ ...base, mission: { ...base.mission, done: 'conhunt' } }),
+  JSON.stringify({ ...base, mission: { ...base.mission, done: ['nope'] } }),
+];
+for (const text of bad) {
+  assert.strictEqual(parseSave(text), null, `rejects ${text.slice(-70)}`);
+}
+// duplicate completions collapse rather than fail
+const dupe = JSON.stringify({ ...base, mission: { active: null, jumps: 0, done: ['conhunt', 'conhunt'] } });
+assert.deepStrictEqual(parseSave(dupe).mission.done, ['conhunt']);
 
 console.log('missions: all checks passed');
