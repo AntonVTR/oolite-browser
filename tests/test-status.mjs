@@ -1,4 +1,4 @@
-// Status screen rows: the in-flight status page shows the five fields of the
+// Status screen rows: the in-flight status page shows the fields of the
 // original status page, straight from live game state. Run: node tests/test-status.mjs
 import assert from 'node:assert';
 import { readFileSync } from 'node:fs';
@@ -29,8 +29,9 @@ const field = (list, label) => list.find(([k]) => k === label)[1];
 
 const rows = statusRows(g);
 assert.deepStrictEqual(rows.map(([k]) => k),
-  ['Present system', 'Fuel', 'Cash', 'Legal status', 'Rating'],
-  'the five fields of the original status page, in order');
+  ['Commander', 'Present system', 'Fuel', 'Cash', 'Legal status', 'Rating'],
+  'the fields of the original status page, in order');
+assert.strictEqual(field(rows, 'Commander'), 'JAMESON', 'a fresh commander has the classic name');
 assert.strictEqual(field(rows, 'Present system'), 'LAVE', 'present system from the galaxy');
 assert.strictEqual(field(rows, 'Fuel'), '7.0 ly', 'fuel in light years, one decimal');
 assert.strictEqual(field(rows, 'Cash'), '100.0 CR', 'cash with one decimal');
@@ -40,9 +41,15 @@ assert.strictEqual(field(rows, 'Rating'), 'Harmless', 'a new commander is Harmle
 // the rows follow the live state
 g.player.fuel = 42;
 g.player.credits = 1234.5;
+g.commanderName = 'KIRA NORGATE';
 const changed = statusRows(g);
 assert.strictEqual(field(changed, 'Fuel'), '4.2 ly', 'fuel tracks the tank');
 assert.strictEqual(field(changed, 'Cash'), '1234.5 CR', 'cash tracks the wallet');
+assert.strictEqual(field(changed, 'Commander'), 'KIRA NORGATE', 'the name follows the commander (#19)');
+assert.ok(!rows.some(([k]) => k === 'Trumbles'), 'no trumble row without a pet aboard (#23)');
+g.trumbles = 1;
+assert.strictEqual(field(statusRows(g), 'Trumbles'), '1', 'an aboard trumble has its own row');
+g.trumbles = 0;
 
 addCrime(g, 1);
 assert.strictEqual(field(statusRows(g), 'Legal status'), 'Offender', 'one offence is an Offender');

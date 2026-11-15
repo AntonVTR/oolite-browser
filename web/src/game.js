@@ -532,6 +532,8 @@ export function createGame(assets) {
     dialPitch: 0,
     kills: 0,
     crime: 0, // legal status points: 0 clear, >= 1 offender, >= 51 fugitive
+    commanderName: 'JAMESON', // asked for on a fresh commander, saved (#19)
+    trumbles: 0, // the C64's cargo-eating pet, saved (#23)
     mission: missionState(), // the Galactic Navy chain (#7), travels in the save
     pirateSeq: 0,
     traderSeq: 0,
@@ -991,6 +993,28 @@ function matchRoll(e, upTarget, dt, rate) {
   e.quat = quatNormalize(quatMul(quatAxisAngle(a[0], a[1], a[2], Math.min(ang, rate * dt)), e.quat));
 }
 
+// Trumbles (#23): the C64's novelty pet that eats your cargo. One may crawl
+// aboard when you dock with a hold that has something in it (1/8), and from
+// then on every arrival costs it a tonne. shortcut: no multiplying litters
+// and no sprite — one trumble, counted on the status screen.
+const TRUMBLE_CHANCE = 1 / 8;
+
+function boardTrumble(g) {
+  if (g.trumbles > 0 || cargoUsed(g) <= 0 || g.rand() >= TRUMBLE_CHANCE) return;
+  g.trumbles = 1;
+  pushMessage(g, 'A TRUMBLE CRAWLS ABOARD', YELLOW, 6);
+}
+
+function feedTrumbles(g) {
+  if (!g.trumbles) return;
+  const c = g.player.cargo;
+  const key = c.food > 0 ? 'food' : Object.keys(c).find((k) => c[k] > 0);
+  if (!key) return; // an empty hold cannot lose cargo to a hungry pet
+  c[key] -= 1;
+  if (c[key] <= 0) delete c[key];
+  pushMessage(g, `THE TRUMBLE ATE 1 t OF ${key.toUpperCase()}`, YELLOW, 5);
+}
+
 export function dock(g) {
   g.phase = 'docked';
   g.hudVisible = false;
@@ -1006,6 +1030,7 @@ export function dock(g) {
   // docking delivers a carried Navy mission (#7)
   const missionMsg = missionOnDock(g);
   if (missionMsg) pushMessage(g, missionMsg, GREEN, 6);
+  boardTrumble(g); // the pet may be waiting at the airlock (#23)
 }
 
 // The launch trip (MISSING-FEATURES #6): ten seconds riding out through the
@@ -1191,6 +1216,34 @@ export function jump(g, selected) {
   return true;
 }
 
+// The ZX-original in-system J-drive (#20): a fast hop along the nose that
+// refuses to fire — with an audible warning — when a ship, the station, the
+// planet or the sun sits near the departure or the arrival point.
+// shortcut: the ZX drive's exact range and failure distances are not
+// published, so the port picks clear numbers and checks both ends of the hop.
+const JDRIVE_HOP = 20000;  // metres covered in one hop
+const JDRIVE_CLEAR = 3000; // metres of clear space both ends must have
+
+export function jdrive(g) {
+  if (g.phase !== 'flight') return false;
+  const p = g.player;
+  const fwd = quatRotate(p.quat, [0, 0, 1]);
+  const to = add(p.pos, scale(fwd, JDRIVE_HOP));
+  const blocked = (pt) =>
+    g.entities.some((e) => e.type !== 'cargo' && dist(e.pos, pt) < e.radius + JDRIVE_CLEAR)
+    || dist(pt, PLANET_POS) < PLANET_R + JDRIVE_CLEAR
+    || dist(pt, SUN_POS) < SUN_R + JDRIVE_CLEAR;
+  if (blocked(p.pos) || blocked(to)) {
+    pushMessage(g, 'J-DRIVE BLOCKED — OBSTRUCTION NEARBY', YELLOW, 4);
+    g.events.push({ type: 'jdrive' }); // the original's audible warning
+    return false;
+  }
+  p.pos = to;
+  pushMessage(g, `J-DRIVE HOP — ${JDRIVE_HOP / 1000} KM`, GREEN, 3);
+  g.events.push({ type: 'jdriveHop' });
+  return true;
+}
+
 // The original's MJP: a mis-jump strands you in witchspace — no sun, no
 // planet, no station, three Thargoids (MJP loops GTHG until it has spawned
 // three) and the jump's fuel already spent (Wikipedia). shortcut: the port
@@ -1257,6 +1310,7 @@ function arriveClean(g) {
   spawnPassenger(g); // the hauler and the shuttle of the local traffic (#15)
   spawnPolice(g);
   spawnAsteroidField(g); // a fresh sky has fresh rocks to mine (#12)
+  feedTrumbles(g); // every arrival costs the trumble a tonne (#23)
 }
 
 // --- galactic hyperspace (MISSING-FEATURES #8) -----------------------------

@@ -1,9 +1,8 @@
 // STATUS screen — the in-flight commander status page (MISSING-FEATURES.md
-// #3): present system, fuel, cash, legal status and rating — the five fields
-// of the original status page (original key: `5`, keyconfig.plist
-// key_gui_screen_status). Two original fields are skipped: commander name has
-// no equivalent in the port yet (#19), and the hyperspace nav target is not
-// tracked — the chart jumps immediately — so there is nothing to show.
+// #3): commander, present system, fuel, cash, legal status and rating — the
+// fields of the original status page (original key `5`, keyconfig.plist
+// key_gui_screen_status). The hyperspace nav target is skipped: the chart
+// jumps immediately — there is nothing to show.
 //
 // Same overlay pattern as slots.js: the screen builds its own DOM from the
 // shared .overlay/.panel/.market styles in style.css (no extra CSS needed),
@@ -12,16 +11,20 @@
 
 import { systemsIn, rankName, legalStatus } from './game.js';
 
-// The five fields, straight from live game state.
+// The fields, straight from live game state.
 export function statusRows(g) {
   const p = g.player;
-  return [
+  const rows = [
+    ['Commander', g.commanderName || 'JAMESON'],
     ['Present system', g.witchspace ? 'WITCHSPACE (no station)' : systemsIn(g)[g.systemIndex].name],
     ['Fuel', `${(p.fuel / 10).toFixed(1)} ly`],
     ['Cash', `${p.credits.toFixed(1)} CR`],
     ['Legal status', legalStatus(g.crime)],
     ['Rating', rankName(g.kills)],
   ];
+  // the C64's pet only has a line of its own when one is aboard (#23)
+  if (g.trumbles) rows.push(['Trumbles', String(g.trumbles)]);
+  return rows;
 }
 
 // ---- screen ----------------------------------------------------------------

@@ -9,8 +9,10 @@ import { dirname, join } from 'node:path';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const { parsePlist } = await import(join(root, 'web/src/plist.js'));
 const { createGame, launch, stepGame, jump, systemsIn, galacticJump,
-  equipmentFor, buyEquipment, SYSTEMS } = await import(join(root, 'web/src/game.js'));
+  equipmentFor, buyEquipment, jdrive, PLANET_POS, SYSTEMS } =
+  await import(join(root, 'web/src/game.js'));
 const { galaxySystems, distanceLy } = await import(join(root, 'web/src/galaxy.js'));
+const { quatRotate, add, scale } = await import(join(root, 'web/src/math.js'));
 
 const read = (p) => readFileSync(join(root, 'web/assets', p), 'utf8');
 const assets = {
@@ -177,5 +179,35 @@ w5.entities.push({
 });
 for (let i = 0; i < 900 && w5.phase === 'flight'; i++) stepGame(w5, {}, 1 / 60);
 assert.strictEqual(w5.phase, 'dead', 'the escape pod is fatal in witchspace');
+
+// ---- #20 in-system J-drive --------------------------------------------------
+// The ZX-original fast hop: 20 km along the nose, free, refused with an
+// audible warning when a ship, the station, the planet or the sun is near
+// either end of the hop.
+const j = newGame(); // launch leaves the station 3.2 km off, too far to matter
+// here (node has no meshes, so every radius is the 60 m fallback) — a contact
+// a kilometre off the nose is the nearby ship the ZX drive refuses to jump past
+j.entities.push({ type: 'ship', radius: 60,
+  pos: [j.player.pos[0], j.player.pos[1], j.player.pos[2] + 1000] });
+const pos0 = [...j.player.pos];
+assert.strictEqual(jdrive(j), false, 'the station nearby blocks the hop');
+assert.ok(j.messages.some((m) => m.text === 'J-DRIVE BLOCKED — OBSTRUCTION NEARBY'),
+  'the HUD says why');
+assert.deepStrictEqual(j.player.pos, pos0, 'and the ship stays put');
+assert.ok(j.events.some((e) => e.type === 'jdrive'), 'with the audible warning');
+
+j.entities = [];
+j.player.pos = [40000, -20000, 0]; // open sky: planet and sun both far off
+const nose = quatRotate(j.player.quat, [0, 0, 1]);
+const clear0 = [...j.player.pos];
+assert.ok(jdrive(j), 'clear space: the drive fires');
+assert.deepStrictEqual(j.player.pos, add(clear0, scale(nose, 20000)),
+  'exactly 20 km along the nose');
+assert.ok(j.events.some((e) => e.type === 'jdriveHop'), 'with the hop sound');
+
+j.player.pos = add(scale(nose, -20000), PLANET_POS); // arrival lands on the planet
+const atPlanet = [...j.player.pos];
+assert.strictEqual(jdrive(j), false, 'arrival inside the planet is refused');
+assert.deepStrictEqual(j.player.pos, atPlanet, 'the ship stays where it stood');
 
 console.log('travel: all checks passed');

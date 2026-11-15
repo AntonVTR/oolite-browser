@@ -12,7 +12,7 @@ import {
   shipyardFor, tradeInValue, buyShip, shipName, zoomScanner, jump,
   equipmentFor, buyEquipment, spawnThargoid, systemsIn, rankName, legalStatus,
   pushMessage, spawnStation, SUN_POS, SUN_R, PLANET_POS, PLANET_R,
-  setView, cycleView, cycleLaserMount,
+  setView, cycleView, cycleLaserMount, jdrive,
 } from './game.js';
 import { galaxySystems } from './galaxy.js';
 import { missionView, acceptMission } from './missions.js';
@@ -235,6 +235,8 @@ function playEvents() {
       case 'sell': audio.play('sell', { volume: 0.6 }); break;
       case 'docking': audio.play('guiclick', { volume: 0.6 }); break;
       case 'jump': audio.play('beep', { volume: 0.7, rate: 0.6 }); break;
+      case 'jdrive': audio.play('beep', { volume: 0.7, rate: 1.7 }); break; // blocked (#20)
+      case 'jdriveHop': audio.play('beep', { volume: 0.5, rate: 0.8 }); break;
       default: break;
     }
   }
@@ -285,6 +287,7 @@ function buildMarketScreen() {
       return `  ${r ? r.name : k}: ${v} ${r ? r.unit : 't'}`;
     }).join('\n') || '  (empty)';
   el('dock-status').textContent =
+    `Commander: ${game.commanderName || 'JAMESON'}\n` +
     `Credits: ${p.credits.toFixed(1)} CR\n` +
     `Fuel: ${(p.fuel / 10).toFixed(1)} ly   Cargo: ${used}/${p.maxCargo} t\n` +
     `Kills: ${game.kills}   Rating: ${rankName(game.kills)}\n` +
@@ -414,6 +417,16 @@ function hideOverlays() {
   for (const id of ['title', 'docked', 'dead', 'loading']) el(id).classList.add('hidden');
 }
 
+// A fresh commander is asked for a name (#19), like the original's
+// LOAD NEW COMMANDER. Cancel or an empty line keeps the default; the name
+// rides along with every save from then on.
+function nameNewCommander() {
+  let answer = null;
+  try { answer = window.prompt('LOAD NEW COMMANDER — your name?', game.commanderName); } catch (e) { /* no prompt here */ }
+  const name = (answer || '').trim().slice(0, 24);
+  game.commanderName = name || 'JAMESON';
+}
+
 function syncPhase() {
   if (game.phase === prevPhase) return;
   prevPhase = game.phase;
@@ -484,6 +497,11 @@ function frame(now) {
 
   syncPhase();
   playEvents();
+  // The auto-dock jingle (#21): a waltz while the docking computer flies, off
+  // again the moment it lets go — start/stop are idempotent, so every frame
+  // just states the truth.
+  if (game.autoDock && game.phase === 'flight') audio.startDockMusic();
+  else audio.stopDockMusic();
 
   if (game.phase === 'flight') {
     renderScene();
@@ -660,6 +678,8 @@ async function main() {
   window.addEventListener('keydown', (e) => {
     if (e.repeat) return; // one press, one action — holding C must not flicker the chart
     if (e.code === 'KeyJ') jumpRequested = true;
+    if (e.code === 'KeyH') jdrive(game); // the ZX in-system J-drive (#20)
+    if (e.code === 'KeyN') renderer.wireframe = !renderer.wireframe; // #22
     if (e.code === 'KeyZ') zoomScanner(game, e.shiftKey ? -1 : 1); // Oolite z / Z
     if (e.code === 'KeyC') toggleChartUI(); // Oolite F is full throttle here
     if (e.code === 'Digit5') toggleStatusUI(); // Oolite's status-screen key
@@ -677,6 +697,7 @@ async function main() {
 
   el('btnStart').addEventListener('click', () => {
     audio.unlock();
+    nameNewCommander();
     launchTrip(game); // the ten-second ride out of the tube (#6)
     hideOverlays();
     el('touch').classList.remove('hidden');
@@ -686,6 +707,7 @@ async function main() {
     game.easyDock = easyBox.checked; // the checkbox survives a restart
     prevPhase = 'title';
     audio.unlock();
+    nameNewCommander();
     launchTrip(game);
     hideOverlays();
     el('touch').classList.remove('hidden');
@@ -720,8 +742,31 @@ async function main() {
     if (query.has('zoom') && z >= 1 && z <= 5) game.scannerZoom = Math.round(z);
     // ?view=aft|port|starboard starts in another view (headless smoke, #14)
     if (query.has('view')) setView(game, query.get('view'));
+    // ?wire starts in wireframe display mode (headless smoke, #22)
+    if (query.has('wire')) renderer.wireframe = true;
     // ?thargoid puts the alien warship ahead of the nose (headless smoke test)
     if (query.has('thargoid')) spawnThargoid(game);
+    // ?jdrive presses the in-system J-drive once (headless smoke, #20): with
+    // the station right ahead the drive must refuse, warn and stay put
+    if (query.has('jdrive')) {
+      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyH' }));
+      setTimeout(() => {
+        if (!game.messages.some((m) => m.text.startsWith('J-DRIVE BLOCKED'))) {
+          console.error('jdrive smoke: no refusal near the station');
+        } else console.log('jdrive smoke: refused with the warning');
+      }, 100);
+    }
+    // ?dcomp fits the docking computer and presses DOCK (headless smoke, #21):
+    // the autopilot takes the ship, which is what starts its music
+    if (query.has('dcomp')) {
+      game.player.equipment.EQ_DOCK_COMP = true;
+      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Enter' }));
+      let tries = 0;
+      const t = setInterval(() => {
+        if (game.autoDock) { clearInterval(t); console.log('dcomp smoke: autopilot engaged'); }
+        else if (++tries > 100) { clearInterval(t); console.error('dcomp smoke: autopilot never engaged'); }
+      }, 25);
+    }
     // ?chart opens the short-range chart, ?chart=long the whole galaxy (#9)
     if (query.has('chart')) {
       toggleChartUI(query.get('chart') === 'long' ? 'long' : undefined);
