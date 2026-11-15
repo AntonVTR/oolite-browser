@@ -163,18 +163,22 @@ g.player.energy = g.player.maxEnergy;
 const quarry = makeTarget({ energy: 150 }); // one blastPower 180 warhead away from wrecked
 g.entities.push(quarry);
 g.target = quarry;
+// the lock builds while the reticle holds the target in the forward arc (#18)
+for (let i = 0; i < 150 && g.lockProgress < 1; i++) stepGame(g, noInput(), 1 / 60);
+assert.strictEqual(g.lockProgress, 1, 'the reticle locks onto the target');
 const pylon0 = g.player.missiles;
 assert.strictEqual(g.missiles.length, 0, 'nothing in flight yet');
 assert.ok(launchMissile(g), 'missile launches at the locked target');
 assert.strictEqual(g.player.missiles, pylon0 - 1, 'the pylon is spent');
 assert.strictEqual(g.missiles.length, 1, 'one missile in flight');
 assert.strictEqual(g.missiles[0].hostile, false, 'player missiles are not hostile');
+assert.strictEqual(g.missiles[0].homing, true, 'and a locked launch tracks');
 // an empty pylon refuses to launch while the lock is good
 g.player.missiles = 0;
 assert.strictEqual(launchMissile(g), false, 'empty pylons refuse to launch');
 g.player.missiles = pylon0 - 1;
 g.target = null;
-assert.strictEqual(launchMissile(g), false, 'without a lock the launch is refused');
+assert.strictEqual(launchMissile(g), false, 'without a target the launch is refused');
 assert.strictEqual(g.player.missiles, pylon0 - 1, 'a refused launch spends no missile');
 g.target = quarry;
 for (let i = 0; i < 600 && quarry.alive; i++) stepGame(g, noInput(), 1 / 60);

@@ -508,6 +508,8 @@ export function createGame(assets) {
     weaponKey: 'WEAPON_BEAM_LASER',
     weaponLabel: 'FORE · BEAM', // HUD line under the crosshair (#16)
     weaponMount: 'fore',        // which mount FIRE shoots: fore | aft (#16)
+    lockProgress: 0,            // missile lock on the target, 0..1 (#18)
+    lockTarget: null,           // what the lock was built on
     systemIndex: 7, // Lave — the classic starting system
     galaxy: 1,     // which of the 8 galaxies the commander is in (#8)
     galConfirm: false, // a GALACTIC press is armed, waiting for the second (#8)
@@ -1480,13 +1482,52 @@ function damagePlayer(g, amount) {
 // ---- missiles --------------------------------------------------------------
 // The real missile (shipdata oolite_template_missile): 750 m/s, 25 m
 // proximity fuse, 30 km range, blastPower 180.
-// shortcut: one standard missile per press at the locked target — no pylon
-// missile types, no lock-on status, no missile-vs-missile interception.
+// Lock states (#18): your missile only tracks when the reticle has held the
+// target in the forward arc for MISSILE_LOCK_TIME — before that it goes out
+// dumbfire, straight and blind. An incoming missile locks the same way and
+// flies straight until it has you, so turning out of its seeker cone (or the
+// ECM sweep) breaks the lock before it ever steers.
+// shortcut: no pylon missile types, no missile-vs-missile interception.
 const MISSILE_SPEED = 750;
 const MISSILE_RANGE = 30000;
 const MISSILE_DAMAGE = 180;
 const MISSILE_FUSE = 25;
-const MISSILE_TURN = 1.8; // rad/s of course change
+const MISSILE_TURN = 1.8;       // rad/s of course change
+const MISSILE_LOCK_TIME = 1.5;  // seconds of steady aim to lock on (#18)
+const MISSILE_LOCK_RANGE = 8000;
+const MISSILE_SEEKER_COS = 0.5; // seeker cone, 60° off the missile's nose
+
+// The lock on the current target (#18): it builds while the target sits in
+// the forward arc inside MISSILE_LOCK_RANGE and breaks the moment it does
+// not. Switching targets breaks it too — the reticle has to settle again.
+export function updateMissileLock(g, dt) {
+  const t = g.target;
+  if (g.lockTarget !== t) {
+    const was = g.lockProgress >= 1;
+    g.lockTarget = t;
+    g.lockProgress = 0;
+    if (was) pushMessage(g, 'MISSILE LOCK BROKEN', YELLOW, 3);
+    return;
+  }
+  if (!t || !t.alive) { g.lockProgress = 0; return; }
+  const nose = quatRotate(g.player.quat, [0, 0, 1]);
+  const to = sub(t.pos, g.player.pos);
+  const range = len(to) || 1;
+  const inArc = dot(nose, scale(to, 1 / range)) > 0.5;
+  if (range <= MISSILE_LOCK_RANGE && inArc) {
+    const before = g.lockProgress;
+    g.lockProgress = Math.min(1, g.lockProgress + dt / MISSILE_LOCK_TIME);
+    if (before < 1 && g.lockProgress >= 1) {
+      pushMessage(g, 'MISSILE LOCKED', GREEN, 3);
+      g.events.push({ type: 'beep' });
+    }
+  } else if (g.lockProgress >= 1) {
+    g.lockProgress = 0;
+    pushMessage(g, 'MISSILE LOCK BROKEN', YELLOW, 3);
+  } else {
+    g.lockProgress = 0;
+  }
+}
 
 export function launchMissile(g) {
   const p = g.player;
@@ -1499,19 +1540,25 @@ export function launchMissile(g) {
   if (p.missiles <= 0) { pushMessage(g, 'OUT OF MISSILES', RED); return false; }
   p.missiles--;
   const fwd = quatRotate(p.quat, [0, 0, 1]);
+  const homing = g.lockProgress >= 1; // no lock yet: it goes out dumb (#18)
   g.missiles.push({
     pos: add(p.pos, scale(fwd, p.radius + 5)),
     vel: scale(fwd, MISSILE_SPEED),
-    target: t,
+    target: homing ? t : null,
+    homing,
+    owner: p,
     hostile: false,
     life: MISSILE_RANGE / MISSILE_SPEED,
   });
+  g.lockProgress = 0; // the next missile has to lock on as well
   g.events.push({ type: 'missile' });
-  pushMessage(g, 'MISSILE LAUNCHED', YELLOW, 3);
+  pushMessage(g, homing ? 'MISSILE LAUNCHED' : 'MISSILE LAUNCHED — NO LOCK (DUMBFIRE)',
+    homing ? YELLOW : RED, 3);
   return true;
 }
 
 // Hostile ships loose missiles at the player, as Oolite's combat AI does.
+// They start blind (lock 0) and pick the target up in flight (#18).
 export function launchMissileAt(g, from, target, hostile) {
   const dir = norm(sub(target.pos, from.pos));
   g.missiles.push({
@@ -1519,11 +1566,21 @@ export function launchMissileAt(g, from, target, hostile) {
     vel: scale(dir, MISSILE_SPEED),
     target,
     hostile: !!hostile,
+    lock: 0,
     life: MISSILE_RANGE / MISSILE_SPEED,
   });
   g.events.push({ type: 'missile' });
   if (hostile) pushMessage(g, 'INCOMING MISSILE', RED, 3);
   return true;
+}
+
+// Closest point on the segment prev → prev+seg to `pos`, within `r` of it.
+// Fusing against the whole segment matters: at 750 m/s a 50 ms step can
+// skip clean past a small target.
+function segmentHit(prev, seg, seg2, pos, r) {
+  let f = seg2 > 0 ? dot(sub(pos, prev), seg) / seg2 : 0;
+  f = f < 0 ? 0 : f > 1 ? 1 : f;
+  return dist(add(prev, scale(seg, f)), pos) <= r;
 }
 
 function detonate(g, m) {
@@ -1543,28 +1600,56 @@ function updateMissiles(g, dt) {
   const p = g.player;
   for (const m of g.missiles) {
     m.life -= dt;
+    const prev = m.pos;
+
+    // A dumbfire has no guidance at all: straight from the launcher and
+    // blind, fusing against whatever hull it runs into except the one that
+    // fired it (#18).
+    if (!m.homing && !m.hostile) {
+      m.pos = add(prev, scale(m.vel, dt));
+      const seg = sub(m.pos, prev);
+      const seg2 = dot(seg, seg);
+      for (const e of g.entities) {
+        if (!e.alive || e === m.owner || (e.type !== 'ship' && e.type !== 'rock')) continue;
+        if (segmentHit(prev, seg, seg2, e.pos, e.radius + MISSILE_FUSE)) {
+          m.target = e; // so detonate() knows what it hit
+          detonate(g, m);
+          break;
+        }
+      }
+      continue;
+    }
+
     const t = m.target;
     const valid = t && (t === p ? p.alive : t.alive && g.entities.includes(t));
     if (!valid) { m.life = 0; continue; }
     const dir = norm(m.vel);
     const want = norm(sub(t.pos, m.pos));
-    const ax = cross(dir, want);
-    const axl = len(ax);
-    if (axl > 1e-6) {
-      const angle = Math.atan2(axl, Math.max(-1, Math.min(1, dot(dir, want))));
-      const step = Math.min(angle, MISSILE_TURN * dt);
-      const q = quatAxisAngle(ax[0] / axl, ax[1] / axl, ax[2] / axl, step);
-      m.vel = scale(quatRotate(q, dir), MISSILE_SPEED);
+
+    // An incoming missile locks on in flight: it flies straight until the
+    // target has sat in its seeker cone for MISSILE_LOCK_TIME, so breaking
+    // the cone (or the ECM) leaves it blind (#18).
+    if (m.hostile && !(m.lock >= 1)) {
+      const holding = dot(dir, want) > MISSILE_SEEKER_COS
+        && dist(m.pos, t.pos) <= MISSILE_LOCK_RANGE;
+      m.lock = holding ? Math.min(1, (m.lock || 0) + dt / MISSILE_LOCK_TIME) : 0;
     }
-    const prev = m.pos;
+    const steers = m.hostile ? m.lock >= 1 : !!m.homing;
+
+    if (steers) {
+      const ax = cross(dir, want);
+      const axl = len(ax);
+      if (axl > 1e-6) {
+        const angle = Math.atan2(axl, Math.max(-1, Math.min(1, dot(dir, want))));
+        const step = Math.min(angle, MISSILE_TURN * dt);
+        const q = quatAxisAngle(ax[0] / axl, ax[1] / axl, ax[2] / axl, step);
+        m.vel = scale(quatRotate(q, dir), MISSILE_SPEED);
+      }
+    }
     m.pos = add(prev, scale(m.vel, dt));
-    // Fuse against the whole segment travelled this frame, not just the end
-    // point: at 750 m/s a 50 ms step can skip clean past a small target.
     const seg = sub(m.pos, prev);
     const seg2 = dot(seg, seg);
-    let f = seg2 > 0 ? dot(sub(t.pos, prev), seg) / seg2 : 0;
-    f = f < 0 ? 0 : f > 1 ? 1 : f;
-    if (dist(add(prev, scale(seg, f)), t.pos) <= t.radius + MISSILE_FUSE) detonate(g, m);
+    if (segmentHit(prev, seg, seg2, t.pos, t.radius + MISSILE_FUSE)) detonate(g, m);
   }
   g.missiles = g.missiles.filter((m) => m.life > 0);
 }
@@ -2202,6 +2287,7 @@ export function stepGame(g, input, dt) {
   // --- targeting / compass ------------------------------------------------
   if (input.targetNext) cycleTarget(g);
   if (g.target && (!g.target.alive || !g.entities.includes(g.target))) g.target = null;
+  updateMissileLock(g, dt); // the lock follows the reticle (#18)
   g.compass = g.target || g.station;
   g.targetBounty = g.target && g.target.bounty ? g.target.bounty : 0;
 

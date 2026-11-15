@@ -164,6 +164,8 @@ export function applySave(g, data) {
   g.explosions = [];
   g.missiles = [];
   g.target = null;
+  g.lockProgress = 0; // no lock survives a load (#18)
+  g.lockTarget = null;
   g.messages = [];
   g.alert = 'green';
   g.weaponTemp = 0;
