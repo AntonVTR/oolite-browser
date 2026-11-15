@@ -2,7 +2,7 @@
 // runs the loop (input → game.js → renderer → HUD → audio).
 
 import { Renderer, viewQuat } from './render.js';
-import { Hud } from './hud.js';
+import { Hud, BOTTOM_BAND } from './hud.js';
 import { GameAudio } from './audio.js';
 import { setupKeyboard, setupMouse, setupGamepad, updateCtrl } from './controls.js';
 import { setupTouchControls, clearTouchEdges, syncThrottleKnob } from './touch.js';
@@ -429,12 +429,12 @@ function resize() {
   renderer.resize(w, h, dpr);
   hud.resize(w, h, dpr);
 
-  // Measure the HUD's corner gauge blocks (same maths as hud.js: hud.plist
-  // dials with y_origin=-1 reach 101 units up, legends/bars 279/278 units in)
-  // so the touch controls can be laid out clear of them: --stick-b /
-  // --buttons-b is the bottom offset that keeps a control out of that band.
+  // Measure the HUD's corner gauge blocks (the band hud.js draws its bottom
+  // dials into, BOTTOM_BAND units up from the edge) so the touch controls can
+  // be laid out clear of them: --stick-b / --buttons-b is the bottom offset
+  // that keeps a control out of that band.
   const s = Math.min(w / 640, h / 480);
-  const bandB = 101 * s; // band height from the bottom edge
+  const bandB = BOTTOM_BAND * s; // band height from the bottom edge
   const colL = w / 2 - 279 * s;   // free width left of the band
   const colR = w - (w / 2 + 278 * s); // free width right of it
   const root = document.documentElement.style;

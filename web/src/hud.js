@@ -10,6 +10,13 @@ const DARKGREEN = [0, 0.75, 0];
 const BLUE = [0, 0, 1];
 const WHITE = [1, 1, 1];
 
+// Height in HUD units of the bottom gauge band: the topmost dial with
+// y_origin = -1 reaches 101 units up from the bottom edge. main.js keeps the
+// touch controls out of the same band, and the cockpit frame stops below it.
+export const BOTTOM_BAND = 101;
+
+const VIEW_LABELS = { aft: 'AFT VIEW', port: 'PORT VIEW', starboard: 'STARBOARD VIEW' };
+
 export class Hud {
   constructor(canvas, assets) {
     this.canvas = canvas;
@@ -584,6 +591,68 @@ export class Hud {
     }
   }
 
+  // ---- cockpit frame (#14) -------------------------------------------------
+  // A drawn canopy frame around the view — HUD canvas, no art assets. It
+  // hugs the screen edge and stops above the bottom gauge band, so the
+  // dials stay clear; #touch sits above this canvas, so the sticks and
+  // buttons are never covered either.
+  drawCockpitFrame() {
+    const ctx = this.ctx;
+    const w = this.w, h = this.h;
+    const t = Math.max(9, Math.min(26, Math.min(w, h) * 0.022));
+    const bottom = h - BOTTOM_BAND * this.s - 2;
+    // canopy skin: top bar and two pillars — no floor, the dials are the panel
+    ctx.fillStyle = 'rgba(8,14,11,0.55)';
+    ctx.fillRect(0, 0, w, t);
+    ctx.fillRect(0, 0, t, bottom);
+    ctx.fillRect(w - t, 0, t, bottom);
+    const path = () => {
+      ctx.beginPath();
+      ctx.moveTo(t, bottom);
+      ctx.lineTo(t, t);
+      ctx.lineTo(w - t, t);
+      ctx.lineTo(w - t, bottom);
+    };
+    ctx.strokeStyle = 'rgba(150,170,160,0.85)';
+    ctx.lineWidth = Math.max(1, t * 0.25);
+    path();
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(0,255,100,0.30)'; // HUD-green accent inside the edge
+    ctx.lineWidth = Math.max(1, this.L(1.5));
+    path();
+    ctx.stroke();
+    // pillar feet
+    ctx.strokeStyle = 'rgba(150,170,160,0.85)';
+    ctx.lineWidth = Math.max(1, t * 0.25);
+    ctx.beginPath();
+    ctx.moveTo(t, bottom); ctx.lineTo(t + t * 1.8, bottom);
+    ctx.moveTo(w - t, bottom); ctx.lineTo(w - t - t * 1.8, bottom);
+    ctx.stroke();
+    // the canopy bow over the top centre
+    const bw = t * 4, bh = t * 1.3;
+    ctx.fillStyle = 'rgba(8,14,11,0.55)';
+    ctx.beginPath();
+    ctx.moveTo(w / 2 - bw / 2, 0);
+    ctx.lineTo(w / 2 + bw / 2, 0);
+    ctx.lineTo(w / 2 + bw / 2 - t * 0.7, t + bh);
+    ctx.lineTo(w / 2 - bw / 2 + t * 0.7, t + bh);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    // which way you are looking, when it is not the forward view
+    const label = VIEW_LABELS[this.g.view];
+    if (label) {
+      ctx.font = `bold ${Math.max(11, this.L(11))}px "Courier New", monospace`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.shadowColor = 'rgba(0,0,0,0.85)';
+      ctx.shadowBlur = 4;
+      ctx.fillStyle = this.rgba(GREEN, 0.95);
+      ctx.fillText(label, w / 2, t + bh + 4);
+      ctx.shadowBlur = 0;
+    }
+  }
+
   // ---- entry point ---------------------------------------------------------
   draw(game) {
     this.g = game;
@@ -592,6 +661,7 @@ export class Hud {
     ctx.clearRect(0, 0, this.w, this.h);
     if (!game.hudVisible) return;
 
+    this.drawCockpitFrame();
     this.drawCrosshair();
     this.drawLegends();
     for (const info of this.hud.dials || []) {

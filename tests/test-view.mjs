@@ -120,4 +120,38 @@ for (const c of viewCases) {
   }
 }
 
+// ---- cockpit frame (#14) ---------------------------------------------------
+// Drawn on the HUD canvas: it must not throw, must stop above the bottom
+// gauge band, and must name the view when it is not the forward one.
+const { Hud, BOTTOM_BAND } = await import(join(root, 'web/src/hud.js'));
+const drawLog = [];
+const hudCtx = new Proxy({}, {
+  get: (t, k) => (k in t ? t[k] : (...a) => { drawLog.push([k, ...a]); }),
+  set: (t, k, v) => { t[k] = v; return true; },
+});
+const hud = new Hud({ width: 0, height: 0, getContext: () => hudCtx },
+  { plists: { hud: {}, crosshairs: {} } });
+hud.resize(800, 600, 1);
+const fake = (view) => ({
+  hudVisible: true, view, showCrosshair: false, target: null, time: 0,
+});
+
+hud.draw(fake('front'));
+const rects = drawLog.filter((c) => c[0] === 'fillRect');
+assert.ok(rects.length >= 3, 'frame draws the top bar and both pillars');
+for (const r of rects) {
+  assert.ok(r[2] + r[4] <= 600 - BOTTOM_BAND * hud.s + 1e-6,
+    `frame element stops above the gauge band (got bottom ${r[2] + r[4]})`);
+}
+assert.ok(!drawLog.some((c) => c[0] === 'fillText'), 'forward view needs no label');
+
+drawLog.length = 0;
+hud.draw(fake('aft'));
+assert.ok(drawLog.some((c) => c[0] === 'fillText' && c[1] === 'AFT VIEW'),
+  'aft view names itself under the canopy bow');
+
+drawLog.length = 0;
+hud.draw({ ...fake('aft'), hudVisible: false });
+assert.ok(!drawLog.some((c) => c[0] === 'fillRect'), 'no frame without a HUD');
+
 console.log('view: all checks passed');
