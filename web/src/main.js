@@ -12,7 +12,7 @@ import {
   shipyardFor, tradeInValue, buyShip, shipName, zoomScanner, jump,
   equipmentFor, buyEquipment, spawnThargoid, systemsIn, rankName, legalStatus,
   pushMessage, spawnStation, SUN_POS, SUN_R, PLANET_POS, PLANET_R,
-  setView, cycleView,
+  setView, cycleView, cycleLaserMount,
 } from './game.js';
 import { galaxySystems } from './galaxy.js';
 import { missionView, acceptMission } from './missions.js';
@@ -167,7 +167,11 @@ function renderScene() {
   for (const e of game.entities) drawEntity(e);
 
   for (const s of game.shots) {
-    renderer.drawBeam(s.from, s.to, 3.5, s.hostile ? [1, 0.25, 0.15, 0.9] : [0.4, 1, 0.4, 0.95]);
+    // red hurts you, amber is one NPC shooting another (#15), green is yours
+    const col = s.hostile ? [1, 0.25, 0.15, 0.9]
+      : s.npc ? [1, 0.8, 0.2, 0.95]
+      : [0.4, 1, 0.4, 0.95];
+    renderer.drawBeam(s.from, s.to, 3.5, col);
   }
   // missiles: a bright motor trail with a glowing tip
   for (const m of game.missiles) {
@@ -291,9 +295,21 @@ function buildMarketScreen() {
   buildMissionScreen(); // the Navy briefing sits between status and tabs (#7)
 
   const table = el('market');
-  // Equipment sits under the commodities in the same table: ten items at
+  // Equipment sits under the commodities in the same table: thirteen rows at
   // their real equipment.plist prices (see EQUIPMENT_KEYS in game.js).
   const eq = equipmentFor(game).map((r) => {
+    if (r.laser) {
+      // Lasers fit a mount, not a flag (#16): one button per mount, and the
+      // one that already holds this laser reads FITTED and stays disabled.
+      const btn = (m) => `<button data-act="equip" data-key="${r.key}"
+          data-mount="${m}" ${r[m] ? 'disabled' : ''}>${r[m] ? 'FITTED' : m.toUpperCase()}</button>`;
+      return `<tr>
+        <td>${r.name}</td>
+        <td>${r.price}</td>
+        <td colspan="2">${r.note}</td>
+        <td>${btn('fore')} ${btn('aft')}</td>
+      </tr>`;
+    }
     const label = r.can ? 'BUY' : 'OWNED';
     return `<tr>
         <td>${r.name}</td>
@@ -347,7 +363,7 @@ function wireDockScreen() {
     const btn = e.target.closest('button');
     if (!btn) return;
     if (btn.dataset.act === 'buy') buyGood(game, btn.dataset.key, 1);
-    else if (btn.dataset.act === 'equip') buyEquipment(game, btn.dataset.key);
+    else if (btn.dataset.act === 'equip') buyEquipment(game, btn.dataset.key, btn.dataset.mount);
     else sellGood(game, btn.dataset.key, 1);
     playEvents();
     buildMarketScreen();
@@ -629,6 +645,18 @@ async function main() {
   });
   el('touch').querySelector('.buttons').insertBefore(btnView, el('btnFire'));
 
+  // LASER button beside it: swaps the primed mount forward ↔ aft, the touch
+  // twin of the T key (#16).
+  const btnLaser = document.createElement('button');
+  btnLaser.id = 'btnLaser';
+  btnLaser.className = 'ctl';
+  btnLaser.textContent = 'LASER';
+  btnLaser.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    if (game.phase === 'flight') cycleLaserMount(game);
+  });
+  el('touch').querySelector('.buttons').insertBefore(btnLaser, el('btnFire'));
+
   window.addEventListener('keydown', (e) => {
     if (e.repeat) return; // one press, one action — holding C must not flicker the chart
     if (e.code === 'KeyJ') jumpRequested = true;
@@ -641,6 +669,8 @@ async function main() {
       if (e.code === 'Digit2') setView(game, 'aft');
       if (e.code === 'Digit3') setView(game, 'port');
       if (e.code === 'Digit4') setView(game, 'starboard');
+      // T swaps the primed laser mount between fore and aft (#16)
+      if (e.code === 'KeyT') cycleLaserMount(game);
     }
     if (e.code === 'Escape') { closeChart(); closeStatus(); closeSlots(); }
   });

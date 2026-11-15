@@ -523,6 +523,21 @@ export class Hud {
     this.text(`${t.name}  ${Math.round(t.range)} m`, x + r + this.L(6), y + r, 10, col, 0, 0.9);
   }
 
+  // ---- primed laser (#16) --------------------------------------------------
+  // What FIRE will shoot: mount and weapon, centred under the crosshair —
+  // red when the primed mount holds nothing at all.
+  drawLaserLabel() {
+    const g = this.g;
+    if (!g.weaponLabel) return;
+    const ctx = this.ctx;
+    ctx.font = `bold ${Math.max(10, this.L(10))}px "Courier New", monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const armed = g.weaponKey !== 'WEAPON_NONE';
+    ctx.fillStyle = this.rgba(armed ? GREEN : RED, 0.95);
+    ctx.fillText(g.weaponLabel, this.X(0), this.Y(-64));
+  }
+
   // ---- crosshair -----------------------------------------------------------
   drawCrosshair() {
     const g = this.g;
@@ -687,6 +702,7 @@ export class Hud {
 
     this.drawCockpitFrame();
     this.drawCrosshair();
+    this.drawLaserLabel(); // the primed mount and laser (#16)
     this.drawLegends();
     for (const info of this.hud.dials || []) {
       const eq = info.equipment_required;

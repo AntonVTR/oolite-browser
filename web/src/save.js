@@ -6,7 +6,8 @@
 // crash the game — loadGame() just returns false and the title screen starts
 // fresh.
 
-import { spawnPirate, spawnTrader, spawnPolice, spawnStation, spawnAsteroidField } from './game.js';
+import { spawnPirate, spawnTrader, spawnPolice, spawnStation, spawnAsteroidField,
+  LASER_KEYS, syncWeaponState } from './game.js';
 import { missionState, MISSION_IDS } from './missions.js';
 
 export const SAVE_KEY = 'oolite-browser.save';
@@ -90,13 +91,34 @@ function validate(data) {
   if (p.equipment && typeof p.equipment === 'object' && !Array.isArray(p.equipment)) {
     for (const [k, v] of Object.entries(p.equipment)) if (v === true) player.equipment[k] = true;
   }
+  // Laser mounts (#16) are optional so saves written before they existed
+  // still load; when present each mount must be empty or a known laser, or
+  // the whole save is refused (same rule as crime above). A save from before
+  // the mounts carried its laser as a plain equipment flag — bring it forward
+  // onto the forward mount instead of losing it.
+  let weapons = null;
+  if (p.weapons !== undefined) {
+    const ok = (v) => v === null || v === undefined || LASER_KEYS.includes(v);
+    if (!p.weapons || typeof p.weapons !== 'object' || Array.isArray(p.weapons)
+        || !ok(p.weapons.fore) || !ok(p.weapons.aft)) return null;
+    weapons = { fore: p.weapons.fore || null, aft: p.weapons.aft || null };
+  } else {
+    const flag = Object.keys(player.equipment).find(
+      (k) => k.startsWith('EQ_WEAPON_') && player.equipment[k]);
+    if (flag) {
+      weapons = { fore: flag, aft: null };
+      delete player.equipment[flag];
+    }
+  }
+  if (weapons) player.weapons = weapons;
   return { v: SAVE_VERSION, phase: data.phase, systemIndex: data.systemIndex,
     galaxy, kills: data.kills, crime, mission, player };
 }
 
 export function saveData(g) {
   const p = g.player;
-  const player = { shipKey: p.shipKey, cargo: { ...p.cargo }, pylons: p.pylons || 0 };
+  const player = { shipKey: p.shipKey, cargo: { ...p.cargo }, pylons: p.pylons || 0,
+    weapons: { fore: (p.weapons || {}).fore || null, aft: (p.weapons || {}).aft || null } };
   for (const f of PLAYER_FIELDS) player[f] = p[f];
   player.equipment = { ...p.equipment };
   return { v: SAVE_VERSION, phase: g.phase, systemIndex: g.systemIndex,
@@ -133,6 +155,9 @@ export function applySave(g, data) {
   g.crime = d.crime;
   g.mission = d.mission;
   Object.assign(g.player, d.player);
+  // a load primes the forward mount and re-reads the crosshair/HUD line (#16)
+  g.weaponMount = 'fore';
+  syncWeaponState(g);
 
   g.entities = [];
   g.shots = [];

@@ -506,6 +506,8 @@ export function createGame(assets) {
     view: 'front', // camera view (#14): front | aft | port | starboard
     weaponsOnline: true,
     weaponKey: 'WEAPON_BEAM_LASER',
+    weaponLabel: 'FORE · BEAM', // HUD line under the crosshair (#16)
+    weaponMount: 'fore',        // which mount FIRE shoots: fore | aft (#16)
     systemIndex: 7, // Lave — the classic starting system
     galaxy: 1,     // which of the 8 galaxies the commander is in (#8)
     galConfirm: false, // a GALACTIC press is armed, waiting for the second (#8)
@@ -602,10 +604,14 @@ export function createGame(assets) {
     cargo: {},
     equipment: {}, // fitted gear: EQ_ECM, …
     pylons: 0,    // extra missile racks bought beyond the hull's own
+    // The two laser mounts (#16): the hull starts with the free forward beam,
+    // the aft mount is empty until a laser is fitted there.
+    weapons: { fore: 'EQ_WEAPON_BEAM_LASER', aft: null },
     shipKey: 'cobra3-player', // yard key of the starting hull, for trade-in
     alive: true,
   };
 
+  syncWeaponState(g); // weaponKey / weaponLabel for the HUD and crosshair
   spawnStation(g);
   return g;
 }
@@ -792,9 +798,11 @@ export function buyShip(g, key) {
 // equipment.plist prices, listed by the plist's own techlevel.
 // shortcut: no ship-compatibility gating — everything on the list fits.
 const EQUIPMENT_KEYS = [
-  'EQ_CARGO_BAY', 'EQ_MISSILE', 'EQ_ECM', 'EQ_FUEL_SCOOPS', 'EQ_ESCAPE_POD',
-  'EQ_ENERGY_UNIT', 'EQ_DOCK_COMP', 'EQ_GAL_DRIVE', 'EQ_FUEL_INJECTION',
-  'EQ_SHIELD_BOOSTER', 'EQ_WEAPON_MINING_LASER',
+  'EQ_CARGO_BAY', 'EQ_MISSILE', 'EQ_ECM',
+  'EQ_WEAPON_PULSE_LASER', 'EQ_WEAPON_BEAM_LASER',
+  'EQ_FUEL_SCOOPS', 'EQ_ESCAPE_POD', 'EQ_ENERGY_UNIT', 'EQ_DOCK_COMP',
+  'EQ_GAL_DRIVE', 'EQ_FUEL_INJECTION', 'EQ_SHIELD_BOOSTER',
+  'EQ_WEAPON_MINING_LASER',
 ];
 
 // Fitted gear that changes the ship's numbers. Oolite applies the three
@@ -818,7 +826,8 @@ export function applyEquipmentStats(g) {
   p.aftShield = Math.min(p.aftShield, p.maxShield);
 }
 
-// The row's hint column: what the item does before it is bought.
+// The row's hint column: what the item does before it is bought. Laser rows
+// do not use it — their note reads out the two mounts instead (#16).
 const EQUIPMENT_NOTES = {
   EQ_CARGO_BAY: `+${EXTRA_CARGO} t hold`,
   EQ_ENERGY_UNIT: `recharge ×${ENERGY_RECHARGE_MULT}`,
@@ -828,8 +837,16 @@ const EQUIPMENT_NOTES = {
   EQ_ESCAPE_POD: 'survives destruction',
   EQ_GAL_DRIVE: 'one jump to the next galaxy',
   EQ_FUEL_INJECTION: 'boost ×2.5',
-  EQ_WEAPON_MINING_LASER: 'one-shot asteroids, 12.5 km',
 };
+
+// Which laser sits in which mount (#16) — the note column of every laser row.
+function mountNote(p) {
+  const at = (m) => {
+    const spec = LASERS[(p.weapons || {})[m]];
+    return spec ? spec.name.replace(' Laser', '') : '—';
+  };
+  return `fore: ${at('fore')} · aft: ${at('aft')}`;
+}
 
 export function missileCap(g) {
   // the hull's built-in pylons plus every extra rack bought at the station
@@ -849,12 +866,39 @@ export function equipmentFor(g) {
       // shortcut: Oolite hulls have fixed pylons and sell no extra racks.
       return { ...row, note: `pylons ${p.missiles}/${missileCap(g)}`, can: true };
     }
+    if (LASERS[key]) {
+      // Two buttons, one per mount (#16): FORE fits it forward, AFT rearward,
+      // each disabled where that laser already sits. can stays true — the
+      // price and the mount are checked by buyEquipment itself.
+      return { ...row, laser: true, note: mountNote(p),
+        fore: p.weapons.fore === key, aft: p.weapons.aft === key, can: true };
+    }
     const owned = !!p.equipment[key];
     return { ...row, note: owned ? 'fitted' : EQUIPMENT_NOTES[key] || '', can: !owned };
   }).filter(Boolean);
 }
 
-export function buyEquipment(g, key) {
+// Fitting a laser (#16): the shop's FORE / AFT button picks the mount. A
+// mount that already holds a laser has it replaced.
+// shortcut: the port does not sell the replaced weapon back.
+function buyLaser(g, key, mount) {
+  const p = g.player;
+  const m = mount === 'aft' ? 'aft' : 'fore';
+  if (p.weapons[m] === key) return false; // already fitted there
+  const row = equipmentFor(g).find((r) => r.key === key);
+  if (!row) return false;
+  if (p.credits < row.price) { pushMessage(g, 'INSUFFICIENT CREDITS', RED); return false; }
+  p.credits -= row.price;
+  p.weapons[m] = key;
+  g.weaponMount = m; // prime what was just fitted, so the next shot is it
+  syncWeaponState(g);
+  g.events.push({ type: 'buy' });
+  pushMessage(g, `${row.name.toUpperCase()} FITTED ${m.toUpperCase()}`, GREEN);
+  return true;
+}
+
+export function buyEquipment(g, key, mount) {
+  if (LASERS[key]) return buyLaser(g, key, mount);
   const row = equipmentFor(g).find((r) => r.key === key);
   const p = g.player;
   if (!row || !row.can) return false;
@@ -1259,19 +1303,69 @@ export function galacticJump(g) {
 }
 
 // ---- combat ---------------------------------------------------------------
+// Lasers (#16): the port's per-shot numbers in the shape of the
+// equipment.plist weapon_info rows — range, damage per shot, seconds between
+// shots and the heat each shot adds. shortcut: upstream's beam laser is a
+// 0.1 s / 6 damage repeater and this port has always fired one 60-damage
+// shot every 0.45 s, so the three rows keep that scale and take their
+// differences from the plist's own ordering: the pulse hits harder and
+// slower, the mining laser hits hardest and runs cool, the beam is the fast
+// one. The Military Laser (60 000 CR, 30 km range) is deliberately not sold:
+// at 12 damage every 0.1 s it outranges and out-damages everything for a
+// price a commander can earn in an afternoon (see MISSING-FEATURES.md #16).
+export const LASERS = {
+  EQ_WEAPON_PULSE_LASER: {
+    name: 'Pulse Laser', crosshair: 'WEAPON_PULSE_LASER',
+    range: 6000, damage: 90, cooldown: 0.9, temp: 70,
+  },
+  EQ_WEAPON_BEAM_LASER: {
+    name: 'Beam Laser', crosshair: 'WEAPON_BEAM_LASER',
+    range: 6000, damage: 60, cooldown: 0.45, temp: 55,
+  },
+  EQ_WEAPON_MINING_LASER: {
+    name: 'Mining Laser', crosshair: 'WEAPON_MINING_LASER',
+    range: 12500, damage: 120, cooldown: 2.5, temp: 10,
+  },
+};
+export const LASER_KEYS = Object.keys(LASERS);
+
+// What FIRE shoots (#16): the primed mount, forward or aft. weaponKey picks
+// the crosshair art out of crosshairs.plist, weaponLabel is the HUD line
+// under the crosshair that reads the choice back.
+export function syncWeaponState(g) {
+  const spec = LASERS[g.player.weapons[g.weaponMount]];
+  g.weaponKey = spec ? spec.crosshair : 'WEAPON_NONE';
+  const short = spec ? spec.name.split(' ')[0].toUpperCase() : 'NO LASER';
+  g.weaponLabel = `${g.weaponMount.toUpperCase()} · ${short}`;
+}
+
+// T in flight, the LASER touch button: swap what the gun is primed on.
+export function cycleLaserMount(g) {
+  g.weaponMount = g.weaponMount === 'fore' ? 'aft' : 'fore';
+  syncWeaponState(g);
+  const spec = LASERS[g.player.weapons[g.weaponMount]];
+  pushMessage(g,
+    `LASER: ${g.weaponMount.toUpperCase()} — ${spec ? spec.name.toUpperCase() : 'NOTHING FITTED'}`,
+    spec ? YELLOW : RED, 4);
+  g.events.push({ type: 'beep' });
+}
+
 function fireLaser(g) {
   const p = g.player;
-  // The Mining Laser (equipment.plist EQ_WEAPON_MINING_LASER): the real
-  // weapon_info numbers — range 12 500 m and shot_temperature 10, so it runs
-  // cool — plus one-shot rocks, what its description promises.
-  // shortcut: upstream's mining laser does 50 damage like the pulse laser and
-  // its mining edge is cool running; with no weapon-priming UI (#16) the port
-  // has one beam, so fitting it upgrades that beam instead of adding a second
-  // weapon, and it doubles the damage to rocks (120 vs the rock's 100).
-  const mining = !!p.equipment.EQ_WEAPON_MINING_LASER;
-  const fwd = quatRotate(p.quat, [0, 0, 1]);
+  const mount = g.weaponMount; // 'fore' | 'aft' (#16)
+  const spec = LASERS[p.weapons[mount]];
+  if (!spec) {
+    // rate-limited so a held fire button cannot spam the message
+    if (g.weaponCooldown <= 0) {
+      pushMessage(g, `NO LASER FITTED (${mount.toUpperCase()})`, RED, 3);
+      g.weaponCooldown = 1;
+    }
+    return;
+  }
+  // the aft mount fires astern — that is what a rear laser is for (#16)
+  const fwd = quatRotate(p.quat, mount === 'aft' ? [0, 0, -1] : [0, 0, 1]);
   const origin = add(p.pos, scale(fwd, p.radius));
-  const range = mining ? 12500 : 6000;
+  const range = spec.range;
   let best = null;
   let bestT = range;
   for (const e of g.entities) {
@@ -1285,16 +1379,17 @@ function fireLaser(g) {
   const end = add(origin, scale(fwd, best ? bestT : range));
   g.shots.push({ from: origin, to: end, life: 0.12, hostile: false });
   g.events.push({ type: 'laser' });
-  g.weaponCooldown = 0.45;
-  g.weaponTemp = Math.min(300, g.weaponTemp + (mining ? 10 : 55));
+  g.weaponCooldown = spec.cooldown;
+  g.weaponTemp = Math.min(300, g.weaponTemp + spec.temp);
   if (g.weaponTemp >= 256) {
     g.weaponOffline = 2;
     g.weaponsOnline = false;
     pushMessage(g, 'LASER OVERHEATED', RED);
   }
   if (best) {
-    if (best.type === 'rock') damageRock(g, best, mining ? 120 : 60);
-    else damageShip(g, best, 60, true);
+    // the mining laser's 120 is what one-shots the 100-energy rock (#12)
+    if (best.type === 'rock') damageRock(g, best, spec.damage);
+    else damageShip(g, best, spec.damage, true);
   }
 }
 
