@@ -287,6 +287,27 @@ Original: mining is one of the four income routes, with a mining laser and
 rocks to break up (Wikipedia; Archimedes version shows miners at work). Port:
 no asteroids exist in `web/src/game.js`.
 
+**Done** (branch `iter/space`): asteroids are `type: 'rock'` entities on the
+real `oolite_template_asteroid` data (energy 100, no recharge, bounty 10) and
+the real `oolite_asteroid` mesh; `spawnAsteroidField()` in `web/src/game.js`
+scatters a deterministic field of 1–7 rocks 8–20 km ahead of the nose on
+every launch and arrival, and they tumble and drift as white, unpowered
+contacts on the scanner. Shots break them: the standard beam needs two
+(60 damage vs the rock's 100 energy — the same maths as Oolite's pulse laser
+against `max_energy` 100), and the **Mining Laser** joined the shop at its
+real `equipment.plist` price (8 000 CR, tech level 10) — fitting it gives the
+beam the weapon's real `weapon_info` numbers (range 12 500 m, shot
+temperature 10, so it never overheats) and breaks a rock in one shot. A
+broken rock pays its 10 CR bounty ("a small fee paid for their destruction",
+`descriptions.plist`) and releases 1–2 ore canisters rolled from minerals,
+gold, platinum or gem-stones — scoop them (#11) and sell them at the market.
+**shortcut**: upstream breaks an asteroid into boulders, the boulders into
+splinters, and only scooping a splinter yields 1 t of minerals — three stages
+over as many shots; the port collapses that to one stage with the four ore
+goods, so mining actually pays. Also not ported: rock hermits and Oolite's
+lane-based script populator (`oolite-populator.js`) — the port's field is one
+deterministic handful per system, near the player.
+
 ### 13. Dodo stations
 Original: besides Coriolis there are dodecahedron "Dodo" stations (ZX guide).
 Port: Coriolis only (`spawnStation()` in `web/src/game.js`, one model in

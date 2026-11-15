@@ -75,6 +75,12 @@ gyro, keyboard/mouse and gamepad.
   ahead of the nose while the hold has room. The HUD's scoop dial (Oolite's
   `drawScoopStatus:`) shows it: steady green when ready, breathing while the
   scoops work, dark green with a red foot when the hold is full.
+- **Asteroid mining**: every system scatters a field of rocks on the real
+  asteroid mesh and shipdata; break them with the laser (two shots) or buy
+  the **Mining Laser** (8 000 CR) for 12.5 km range, cool running and one-shot
+  rocks. Broken rocks pay a 10 CR bounty and release ore canisters — minerals,
+  gold, platinum or gem-stones — for the scoops to collect and the market to
+  buy.
 
 ## Not ported yet
 
@@ -83,10 +89,11 @@ gyro, keyboard/mouse and gamepad.
   priority AI), which this port does not have. The Galactic Navy chain itself
   is hand-rolled as plain data instead (see below, #7); the rest of Oolite's
   script content is untouched.
-- 31 of the 41 equipment types — the shop sells ten of them (cargo bay,
+- 30 of the 41 equipment types — the shop sells eleven of them (cargo bay,
   extra energy unit, shield boosters, docking computer, fuel scoops, escape
-  pod, fuel injectors, E.C.M., missiles, galactic hyperdrive), while lasers,
-  cloak, passenger berth and the rest are not modelled — plus ship AI scripts
+  pod, fuel injectors, E.C.M., missiles, galactic hyperdrive, mining laser),
+  while the other laser types, cloak, passenger berth and the rest are not
+  modelled — plus ship AI scripts
   (`.js`), mines and missile-vs-missile interception.
 - Cockpit view, real sun/planet textures (both are shaded spheres), wormholes.
 
@@ -127,14 +134,16 @@ The station screen has two tabs: **Market** (the 17 commodities of
 `trade-goods.plist`, each with the price and stock the current system's
 economy gives it — food is cheap where it is grown, computers where they are
 built — and contraband tagged **ILLEGAL**; selling it is a crime. Below them
-an **Equipment** section with ten items at their real `equipment.plist`
+an **Equipment** section with eleven items at their real `equipment.plist`
 prices: Large Cargo Bay (+15 t hold), Extra Energy Unit (recharge ×1.8),
 Shield Boosters (+128 shields), E.C.M. System, missiles (300 CR each — past
 the hull's pylons every missile brings its own rack), Fuel Scoops (skim the
 sun's corona to refill the tank), Escape Pod (destruction becomes a rescue:
 same ship, cargo lost), Witchdrive Fuel Injectors (BOOST does nothing until
-they are bought), the Docking Computer and the **Galactic Hyperdrive**
-(50 000 CR — one jump to the next galaxy, fired from the chart, see below). The other tab is **Shipyard**
+they are bought), the Docking Computer, the **Galactic Hyperdrive**
+(50 000 CR — one jump to the next galaxy, fired from the chart, see below)
+and the **Mining Laser** (8 000 CR — 12.5 km range, cool running, breaks an
+asteroid in one shot). The other tab is **Shipyard**
 (eleven hulls with
 real `shipyard.plist` prices; your current ship is traded in at ~71% of its
 price, cargo is sold off automatically, and a bought hull leaves the stock for
@@ -174,6 +183,7 @@ node tests/test-missions.mjs  # Navy missions: offer order, accept, jump progres
 node tests/test-chart.mjs     # short/long chart views, system data screen, fuel ring, jump range
 node tests/test-travel.mjs    # galactic hyperspace and witchspace: crossing, stranding, escape
 node tests/test-scoop.mjs     # fuel scooping: canisters, escape capsules, the scoop dial
+node tests/test-mining.mjs    # asteroids, the mining laser, ore that pays at the market
 python3 -m http.server 8099 --directory web   # local server
 # headless smoke test (console errors + screenshots):
 google-chrome --headless=new --virtual-time-budget=6000 --screenshot=/tmp/shot.png \

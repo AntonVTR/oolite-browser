@@ -338,6 +338,77 @@ function tryScoop(g, debris) {
   debris.alive = false;
 }
 
+// ---- asteroids (#12) ------------------------------------------------------
+// The real rocks: shipdata oolite_template_asteroid (energy 100, no
+// recharge, CLASS_ROCK, bounty 10) on the real oolite_asteroid mesh. Broken
+// rocks release ore canisters — see damageRock below.
+// Oolite's four ore commodities from trade-goods.plist, the goods a rock can
+// be worth (upstream's splinter debris carries CARGO_MINERALS, i.e. minerals;
+// see the shortcut in damageRock).
+export const ORE_GOODS = ['minerals', 'gold', 'platinum', 'gem_stones'];
+
+export function spawnAsteroid(g, pos) {
+  const d = def(g, 'asteroid');
+  const t = tumbleSpin();
+  const a = {
+    type: 'rock',
+    shipKey: 'asteroid',
+    name: 'Asteroid',
+    role: 'asteroid',
+    pos: pos.slice(),
+    quat: [0, 0, 0, 1],
+    vel: [(Math.random() - 0.5) * 10, (Math.random() - 0.5) * 10, (Math.random() - 0.5) * 10],
+    radius: radiusOf(g, 'asteroid'),
+    energy: d.max_energy || 100,
+    maxEnergy: d.max_energy || 100,
+    bounty: d.bounty || 10, // the "small fee paid for their destruction"
+    tumbleAxis: t.axis,
+    tumbleRate: t.rate,
+    alive: true,
+    color: [1, 1, 1], // unpowered rock reads white on the scanner
+  };
+  g.entities.push(a);
+  return a;
+}
+
+// The field. shortcut: Oolite's script populator (oolite-populator.js)
+// scatters cluster after cluster along the witchpoint lanes from
+// scrambledPseudoRandomNumber() seeds; the port puts one deterministic
+// handful (1–7 rocks, count from the galaxy/system pair) 8–20 km ahead of
+// the nose on launch and arrival, so every system has rocks to mine without
+// a script engine.
+export function spawnAsteroidField(g) {
+  const n = 1 + Math.floor(pseudoRandom((g.galaxy || 1) * 1000 + g.systemIndex) * 7);
+  for (let i = 0; i < n; i++) spawnAsteroid(g, spawnAhead(g, 8000, 20000));
+  return n;
+}
+
+// A rock the player shoots: no kills, no crime, no mission progress — mining
+// is not combat. It pays the shipdata bounty and drops ore canisters the
+// scoops can collect (#11) and the market buys (#12).
+// shortcut: upstream breaks an asteroid into boulders, the boulders into
+// splinters, and only scooping a splinter yields 1 t of minerals — three
+// stages over as many shots. The port collapses that to one stage: the rock
+// releases ore canisters directly, rolled from the four ore goods so mining
+// actually pays.
+function damageRock(g, rock, amount) {
+  rock.energy -= amount;
+  g.events.push({ type: 'hit' });
+  if (rock.energy > 0) return;
+  rock.alive = false;
+  g.explosions.push({ pos: rock.pos.slice(), life: 0.9, maxLife: 0.9, size: rock.radius * 3 });
+  g.events.push({ type: 'boom' });
+  g.player.credits += rock.bounty;
+  const n = 1 + (Math.random() < 0.5 ? 1 : 0);
+  for (let i = 0; i < n; i++) {
+    const good = ORE_GOODS[Math.floor(Math.random() * ORE_GOODS.length)];
+    spawnCargo(g, add(rock.pos, [
+      (Math.random() - 0.5) * 120, (Math.random() - 0.5) * 120, (Math.random() - 0.5) * 120,
+    ]), good, 1 + Math.floor(Math.random() * 3));
+  }
+  pushMessage(g, `ASTEROID BROKEN — ${rock.bounty} CR, ORE RELEASED`, YELLOW, 5);
+}
+
 // The sun: main.js draws it as a sphere at exactly this spot, and the fuel
 // scoops only work inside its corona, so the simulation carries the position
 // too. Distance is measured from the sun's centre.
@@ -633,7 +704,7 @@ export function buyShip(g, key) {
 const EQUIPMENT_KEYS = [
   'EQ_CARGO_BAY', 'EQ_MISSILE', 'EQ_ECM', 'EQ_FUEL_SCOOPS', 'EQ_ESCAPE_POD',
   'EQ_ENERGY_UNIT', 'EQ_DOCK_COMP', 'EQ_GAL_DRIVE', 'EQ_FUEL_INJECTION',
-  'EQ_SHIELD_BOOSTER',
+  'EQ_SHIELD_BOOSTER', 'EQ_WEAPON_MINING_LASER',
 ];
 
 // Fitted gear that changes the ship's numbers. Oolite applies the three
@@ -667,6 +738,7 @@ const EQUIPMENT_NOTES = {
   EQ_ESCAPE_POD: 'survives destruction',
   EQ_GAL_DRIVE: 'one jump to the next galaxy',
   EQ_FUEL_INJECTION: 'boost ×2.5',
+  EQ_WEAPON_MINING_LASER: 'one-shot asteroids, 12.5 km',
 };
 
 export function missileCap(g) {
@@ -853,6 +925,8 @@ function finishLaunch(g) {
   // Entities survive docking, so an unguarded spawn would stack one more
   // viper on every dock/launch cycle — same guard as the pirate above.
   if (!g.entities.some((e) => e.role === 'police')) spawnPolice(g);
+  // and one field of rocks per outing (#12)
+  if (!g.entities.some((e) => e.type === 'rock')) spawnAsteroidField(g);
 }
 
 // Instant launch: teleport onto the launch framing and fly on. Tests, the
@@ -1049,6 +1123,7 @@ function arriveClean(g) {
   spawnPirate(g);
   spawnTrader(g);
   spawnPolice(g);
+  spawnAsteroidField(g); // a fresh sky has fresh rocks to mine (#12)
 }
 
 // --- galactic hyperspace (MISSING-FEATURES #8) -----------------------------
@@ -1099,13 +1174,21 @@ export function galacticJump(g) {
 // ---- combat ---------------------------------------------------------------
 function fireLaser(g) {
   const p = g.player;
+  // The Mining Laser (equipment.plist EQ_WEAPON_MINING_LASER): the real
+  // weapon_info numbers — range 12 500 m and shot_temperature 10, so it runs
+  // cool — plus one-shot rocks, what its description promises.
+  // shortcut: upstream's mining laser does 50 damage like the pulse laser and
+  // its mining edge is cool running; with no weapon-priming UI (#16) the port
+  // has one beam, so fitting it upgrades that beam instead of adding a second
+  // weapon, and it doubles the damage to rocks (120 vs the rock's 100).
+  const mining = !!p.equipment.EQ_WEAPON_MINING_LASER;
   const fwd = quatRotate(p.quat, [0, 0, 1]);
   const origin = add(p.pos, scale(fwd, p.radius));
-  const range = 6000;
+  const range = mining ? 12500 : 6000;
   let best = null;
   let bestT = range;
   for (const e of g.entities) {
-    if (!e.alive || e.type !== 'ship') continue;
+    if (!e.alive || (e.type !== 'ship' && e.type !== 'rock')) continue;
     const to = sub(e.pos, origin);
     const t = dot(to, fwd);
     if (t <= 0 || t > bestT) continue;
@@ -1116,13 +1199,16 @@ function fireLaser(g) {
   g.shots.push({ from: origin, to: end, life: 0.12, hostile: false });
   g.events.push({ type: 'laser' });
   g.weaponCooldown = 0.45;
-  g.weaponTemp = Math.min(300, g.weaponTemp + 55);
+  g.weaponTemp = Math.min(300, g.weaponTemp + (mining ? 10 : 55));
   if (g.weaponTemp >= 256) {
     g.weaponOffline = 2;
     g.weaponsOnline = false;
     pushMessage(g, 'LASER OVERHEATED', RED);
   }
-  if (best) damageShip(g, best, 60, true);
+  if (best) {
+    if (best.type === 'rock') damageRock(g, best, mining ? 120 : 60);
+    else damageShip(g, best, 60, true);
+  }
 }
 
 function damageShip(g, ship, amount, fromPlayer) {
@@ -1612,13 +1698,14 @@ export function stepGame(g, input, dt) {
       e.quat = quatNormalize(quatMul(quatAxisAngle(0, 1, 0, e.spin * dt), e.quat));
       continue;
     }
-    if (e.type === 'cargo') {
-      // loose loot drifts and tumbles until a scoop collects it (#11)
+    if (e.type === 'cargo' || e.type === 'rock') {
+      // loose debris drifts and tumbles until a scoop takes it (#11) or a
+      // laser breaks the rock (#12)
       e.pos = add(e.pos, scale(e.vel, dt));
       e.quat = quatNormalize(quatMul(
         quatAxisAngle(e.tumbleAxis[0], e.tumbleAxis[1], e.tumbleAxis[2], e.tumbleRate * dt),
         e.quat));
-      tryScoop(g, e);
+      if (e.type === 'cargo') tryScoop(g, e);
       continue;
     }
     updateNPC(e, g, dt);

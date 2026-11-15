@@ -27,6 +27,8 @@ export const SHIP_DEFS = {
   // by kills and escape capsules left behind by wrecks
   barrel: { shipKey: 'oolite_template_barrel', model: 'oolite_barrel' },
   escapecapsule: { shipKey: 'oolite_template_escape-capsule', model: 'oolite_escape_capsule' },
+  // the mineable rocks of #12, on their real shipdata template and mesh
+  asteroid: { shipKey: 'oolite_template_asteroid', model: 'oolite_asteroid' },
   coriolis: {
     shipKey: 'oolite_template_coriolis-station',
     model: 'oolite_coriolis',

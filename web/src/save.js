@@ -6,7 +6,7 @@
 // crash the game — loadGame() just returns false and the title screen starts
 // fresh.
 
-import { spawnPirate, spawnTrader, spawnPolice, spawnStation } from './game.js';
+import { spawnPirate, spawnTrader, spawnPolice, spawnStation, spawnAsteroidField } from './game.js';
 import { missionState, MISSION_IDS } from './missions.js';
 
 export const SAVE_KEY = 'oolite-browser.save';
@@ -162,6 +162,7 @@ export function applySave(g, data) {
     spawnPirate(g);
     spawnTrader(g);
     spawnPolice(g);
+    spawnAsteroidField(g); // the rebuilt sky carries rocks too (#12)
   }
   return true;
 }
