@@ -12,8 +12,9 @@ Sources studied:
 
 Checked against the port on 2026-11-13 (`web/src`, `README.md`). File references
 are to this repo. Items 1–3 were closed on 2026-11-14 (branch `iter/status`) and
-item 4 the same day (branch `iter/market`); their sections below keep the
-original description for the record.
+item 4 the same day (branch `iter/market`); item 5 closed on 2026-11-15 (branch
+`iter/equipment`, which also closed the sun half of item 11); their sections
+below keep the original description for the record.
 
 **Ranking:** P1 = core identity of the game, P2 = universe & travel depth,
 P3 = flight/combat depth, P4 = fidelity polish.
@@ -85,14 +86,39 @@ market limit). Contraband is tagged in the market and selling it calls
 `addCrime()` (#2): one point per tonne, two for narcotics. The docked screen
 keeps all 17 rows and the BUY/SELL pair on one line down to 320 px.
 
-### 5. Equipment range (2 of ~41 items)
+### 5. Equipment range (9 of ~41 items)
 Original upgrades: better lasers, more missiles, cargo bay, **docking
 computer**, **fuel scoops**, extra energy bank, shield boosters, fuel
 injection, **escape pod**, **galactic drive**, cloak, passenger berth (both
-sources; full list in `web/assets/config/equipment.plist`). Port sells only
-`EQ_ECM` and `EQ_MISSILE` (`EQUIPMENT_KEYS` in `web/src/game.js`). Notably
-fuel injectors are *free and always on* instead of a purchase, and death is
-always a game over because there is no escape pod.
+sources; full list in `web/assets/config/equipment.plist`).
+
+**Done** (branch `iter/equipment`): `EQUIPMENT_KEYS` in `web/src/game.js`
+sells nine items at their real `equipment.plist` prices, in the plist's own
+tech-level order — Large Cargo Bay 4 000, Missile 300, E.C.M. 6 000, Fuel
+Scoops 5 250, Escape Pod 10 000, Extra Energy Unit 15 000, Docking Computer
+15 000, Witchdrive Fuel Injectors 6 000, Shield Boosters 147 500.
+`applyEquipmentStats()` applies the three stat items from the same numbers
+Oolite uses (`extra_cargo` +15 t, `oolite_shield_increase` +128,
+`oolite_energy_recharge_multiplier` ×1.8) and re-derives them after a hull
+swap, so the gear follows the commander to a new ship. Missiles bought past
+the hull's pylon count bring their own rack — the port's answer to "more
+missiles" (shortcut: Oolite hulls have a fixed pylon count and sell no extra
+racks) — and `player.pylons` is saved as an optional field, so saves from
+before it existed still load. A DOCK request with the docking computer
+fitted is an autopilot from any range (`g.autoDock` in `stepGame()`): it
+turns onto the station and closes on a distance-based throttle that is under
+the 120 m/s contact limit well before the hull; `steerToward()` also lost
+its exactly-astern dead-lock. Fuel scoops refill the tank at 20 units/s
+inside the sun's corona (that half of #11). BOOST does nothing until the
+injectors are bought, and dying with an escape pod docks you at the station
+with the ship and the fitted gear intact but the manifest gone.
+
+**Still open here**: lasers (they need a damage/rate table and a weapon
+priming UI — the port fires one hardcoded beam — and the mining laser also
+needs #12), cloak (needs invisibility rules for NPC targeting plus a readout
+so the player can tell it is on) and passenger berth (needs passengers and
+missions, #7). None of those is a cheap mechanic, so iteration 3 skipped
+them explicitly; the galactic drive stays #8.
 
 ### 6. Real docking and launch
 User note: make it a setup **easy-mode checkbox on the start screen** — off by
@@ -102,9 +128,11 @@ Original: you must match the station's rotation, thread the docking tunnel at
 low speed (collision can kill or shred cargo), launch is a 10-second trip
 through the force-field tube, and the docking computer does it for you
 (ZX guide). Port: auto-dock when within 400 m under 120 m/s, or a DOCK button
-within 1500 m (`stepGame()` docking block in `web/src/game.js`); launch
-teleports the ship clear (`launch()`). The skill moment of the original is
-gone.
+within 1500 m (`stepGame()` docking block in `web/src/game.js`) — and with a
+bought Docking Computer (#5) the same request is an autopilot from any range;
+launch teleports the ship clear (`launch()`). The tunnel, the rotation match
+and the 10-second launch trip of the original are still missing, so the
+skill moment of the original is gone.
 
 ### 7. Missions
 Original: Galactic Navy jobs — track down a stolen experimental ship, carry
@@ -140,8 +168,10 @@ fight invasion ships — with the jump's fuel already spent (Wikipedia). Port:
 ### 11. Fuel scooping: sun skimming and cargo collection
 Original: `EQ_FUEL_SCOOPS` lets you skim a star's corona for fuel and pick up
 free-floating cargo canisters / escape capsules from wrecks (Wikipedia). Port:
-`drawScoopStatus:` is a no-op stub (`web/src/hud.js`), no scoop equipment, no
-canisters drop from kills.
+sun skimming is done (#5 — the scoops refill the tank inside the sun's
+corona); still open are the `drawScoopStatus:` HUD dial (a no-op stub in
+`web/src/hud.js`, feedback is by message only) and canisters dropping from
+kills, so there is nothing yet to pick up.
 
 ### 12. Asteroid mining
 Original: mining is one of the four income routes, with a mining laser and
