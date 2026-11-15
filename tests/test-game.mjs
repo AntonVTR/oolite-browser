@@ -12,7 +12,7 @@ const { SHIP_DEFS, resolveTextureName } = await import(join(root, 'web/src/asset
 const { createGame, stepGame, launch, marketFor, buyGood, sellGood, cargoUsed, jump, SYSTEMS,
   spawnPirate, spawnTrader, spawnThargoid, shipyardFor, tradeInValue, buyShip, zoomScanner,
   launchMissile, activateECM, equipmentFor, buyEquipment, missileCap, rankName,
-  legalStatus, addCrime, spawnPolice } =
+  legalStatus, addCrime, spawnPolice, SUN_POS } =
   await import(join(root, 'web/src/game.js'));
 const { Hud } = await import(join(root, 'web/src/hud.js'));
 const { distanceLy } = await import(join(root, 'web/src/galaxy.js'));
@@ -595,5 +595,127 @@ g.entities.push(makeTarget({ hostile: true, role: 'pirate', color: [1, 0, 0],
   pos: [g.player.pos[0], g.player.pos[1], g.player.pos[2] + 600], energy: 60 }));
 for (let i = 0; i < 900 && g.phase === 'flight'; i++) stepGame(g, noInput(), 1 / 60);
 assert.strictEqual(g.phase, 'dead', 'player can be killed');
+
+// ---- equipment range (iteration 3) ------------------------------------------
+// A quiet commander for each mechanic: fresh game, contacts switched off.
+const quiet = () => {
+  const x = createGame(assets);
+  launch(x);
+  x.entities = x.entities.filter((e) => e.type === 'station');
+  x.spawnTimer = 1e9;
+  x.player.credits = 1000000;
+  return x;
+};
+const run = (x, input, seconds) => {
+  for (let i = 0; i < Math.round(seconds * 60); i++) stepGame(x, input, 1 / 60);
+};
+
+// --- cargo bay, extra energy unit, shield booster: stat modifiers -----------
+const stat = quiet();
+const bayRow = equipmentFor(stat).find((r) => r.key === 'EQ_CARGO_BAY');
+assert.ok(bayRow, 'the station lists the cargo bay');
+assert.strictEqual(bayRow.price, 4000, 'at the real equipment.plist price');
+assert.strictEqual(stat.player.maxCargo, 20, 'the cobra starts with 20 t');
+assert.ok(buyEquipment(stat, 'EQ_CARGO_BAY'), 'bought at the station');
+assert.strictEqual(stat.player.maxCargo, 35, 'the hold grows by the shipdata extra_cargo (15 t)');
+assert.strictEqual(buyEquipment(stat, 'EQ_CARGO_BAY'), false, 'sold only once');
+
+const energyG = quiet();
+energyG.player.energy = 0;
+run(energyG, noInput(), 1);
+const plain = energyG.player.energy;
+energyG.player.energy = 0;
+assert.ok(buyEquipment(energyG, 'EQ_ENERGY_UNIT'), 'extra energy unit bought');
+run(energyG, noInput(), 1);
+assert.ok(energyG.player.energy > plain * 1.5,
+  `energy unit recharges ${plain.toFixed(1)} → ${energyG.player.energy.toFixed(1)} in a second`);
+
+const shieldG = quiet();
+assert.strictEqual(shieldG.player.maxShield, 150, 'standard shields');
+assert.ok(buyEquipment(shieldG, 'EQ_CARGO_BAY'), 'cargo bay bought');
+assert.ok(buyEquipment(shieldG, 'EQ_SHIELD_BOOSTER'), 'shield boosters bought');
+assert.strictEqual(shieldG.player.maxShield, 278, '150 + the equipment.plist 128');
+shieldG.player.fwdShield = 150;
+run(shieldG, noInput(), 2);
+assert.ok(shieldG.player.fwdShield > 150, 'the boosted shield recharges past the old cap');
+
+// a hull swap keeps the fitted gear's bonuses
+buyShip(shieldG, 'adder-player');
+assert.strictEqual(shieldG.player.maxCargo, 2 + 15, 'cargo bay follows the new hull');
+assert.strictEqual(shieldG.player.maxShield, 278, 'and so do the shield boosters');
+
+// --- fuel injection is bought, not free -------------------------------------
+const inject = quiet();
+inject.player.throttle = 1;
+run(inject, { injectors: true }, 1);
+assert.ok(inject.player.speed <= inject.player.maxSpeed + 1,
+  'holding BOOST without the equipment does nothing');
+assert.ok(buyEquipment(inject, 'EQ_FUEL_INJECTION'), 'fuel injectors bought');
+run(inject, { injectors: true }, 1);
+assert.ok(inject.player.speed > inject.player.maxSpeed * 2,
+  'with them the ship really boosts');
+
+// --- fuel scoops skim the sun -----------------------------------------------
+const scoop = quiet();
+scoop.player.equipment.EQ_FUEL_SCOOPS = true;
+scoop.player.fuel = 10;
+scoop.player.pos = SUN_POS.slice(); // straight into the corona
+run(scoop, noInput(), 1);
+assert.ok(scoop.player.fuel > 10, 'the scoops drink');
+assert.ok(scoop.messages.some((m) => m.text === 'FUEL SCOOPING'), 'and say so');
+run(scoop, noInput(), 4);
+assert.strictEqual(scoop.player.fuel, 70, 'the tank fills to 7.0 ly');
+assert.ok(scoop.messages.some((m) => m.text === 'FUEL TANK FULL'), 'and report the full tank');
+
+const dry = quiet();
+dry.player.fuel = 10;
+dry.player.pos = SUN_POS.slice();
+run(dry, noInput(), 2);
+assert.strictEqual(dry.player.fuel, 10, 'without the scoops the sun gives nothing');
+
+// --- docking computer: DOCK from anywhere -----------------------------------
+const comp = quiet();
+assert.ok(buyEquipment(comp, 'EQ_DOCK_COMP'), 'docking computer bought');
+assert.strictEqual(equipmentFor(comp).find((r) => r.key === 'EQ_DOCK_COMP').price, 15000,
+  'at the real equipment.plist price');
+comp.player.pos = [0, 0, -2000];
+comp.player.quat = [0, 1, 0, 0]; // turned away from the station
+stepGame(comp, { dockRequest: true }, 1 / 60);
+assert.strictEqual(comp.autoDock, true, 'DOCK hands the ship to the autopilot');
+assert.ok(comp.messages.some((m) => m.text === 'DOCKING COMPUTER ENGAGED'), 'and says so');
+run(comp, noInput(), 60);
+assert.strictEqual(comp.phase, 'docked', 'auto-docked from 2 km while facing away');
+assert.strictEqual(comp.autoDock, false, 'the autopilot lets go on docking');
+
+// --- escape pod: destruction becomes a rescue --------------------------------
+const pod = quiet();
+pod.player.equipment.EQ_ESCAPE_POD = true;
+pod.player.cargo = { food: 4 };
+pod.player.fwdShield = 0;
+pod.player.aftShield = 0;
+pod.player.energy = 1;
+pod.entities.push(makeTarget({ hostile: true, role: 'pirate', color: [1, 0, 0],
+  quat: [0, 1, 0, 0],
+  pos: [pod.player.pos[0], pod.player.pos[1], pod.player.pos[2] + 600], energy: 60 }));
+for (let i = 0; i < 900 && pod.phase === 'flight'; i++) stepGame(pod, noInput(), 1 / 60);
+assert.strictEqual(pod.phase, 'docked', 'the escape pod brings you back to the station');
+assert.strictEqual(pod.player.alive, true, 'the commander survives');
+assert.strictEqual(pod.player.shipKey, 'cobra3-player', 'with the ship');
+assert.deepStrictEqual(pod.player.cargo, {}, 'but not the cargo');
+assert.strictEqual(pod.player.equipment.EQ_ESCAPE_POD, true, 'the pod stays fitted');
+assert.ok(pod.player.energy > 0, 'and the banks come back charged');
+assert.ok(pod.messages.some((m) => m.text.startsWith('ESCAPE POD')), 'and it says what happened');
+
+// --- extra pylons carry more missiles ---------------------------------------
+const racks = quiet();
+const cap0 = missileCap(racks);
+assert.strictEqual(cap0, 4, "the cobra's own pylons");
+racks.player.missiles = cap0;
+assert.ok(buyEquipment(racks, 'EQ_MISSILE'), 'a missile past the cap brings a rack');
+assert.strictEqual(racks.player.missiles, cap0 + 1, 'one more missile is carried');
+assert.strictEqual(racks.player.pylons, cap0 + 1, 'and the rack is counted');
+assert.strictEqual(missileCap(racks), cap0 + 1, 'which raises the pylon count');
+assert.ok(buyEquipment(racks, 'EQ_MISSILE'), 'and it can be done again');
+assert.strictEqual(missileCap(racks), cap0 + 2, 'each rack is kept');
 
 console.log('game: all checks passed');
