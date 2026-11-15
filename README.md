@@ -113,6 +113,13 @@ gyro, keyboard/mouse and gamepad.
   shoots — forward along the nose or astern from the tail — with the choice on
   a HUD line under the crosshair. The Military Laser is deliberately not sold
   (it would outrange and out-damage everything; see `MISSING-FEATURES.md` #16).
+- **Fidelity polish**: `H` fires the ZX-original **in-system J-drive** — a
+  free 20 km hop that refuses with an audible warning when a ship, the
+  station, the planet or the sun is near either end — and `N` toggles a
+  **wireframe** view of the world with hidden-line removal, the original's
+  signature look. The C64's **trumble** may crawl aboard when you dock with
+  cargo in the hold and eats a tonne on every jump after that (its row is on
+  the status screen while it is aboard).
 - **Views and live instruments**: `1`–`4` (or the **VIEW** button) switch the
   front, aft, port and starboard views inside a canopy frame drawn on the HUD
   canvas — the crosshair only shows in the view that points where the laser
@@ -152,9 +159,11 @@ gyro, keyboard/mouse and gamepad.
 | Next target | `Tab` | TGT | LB / B |
 | Dock | `Enter` | DOCK | Back |
 | Jump | `J` | JUMP | Y |
+| In-system J-drive (fast hop) | `H` | — | — |
 | Chart (pick jump target) | `C` | CHART | — |
 | Status screen (in flight) | `5` | STATUS | — |
 | View: front / aft / port / starboard | `1` `2` `3` `4` | VIEW (cycles) | — |
+| Wireframe display mode | `N` | — | — |
 | Scanner zoom | `Z` / `Shift+Z` | tap the radar | — |
 | Gyro steering | `G` | GYRO | — |
 | Fullscreen | `F11` (browser) | FULL | — |
@@ -169,7 +178,9 @@ skill: face into the slot, roll with the spinning station and arrive under
 `MATCH THE STATION ROTATION` and `LINE UP WITH THE DOCKING SLOT`, and a rough
 or too-fast approach costs 25 shield plus a tonne of cargo per scrape. In
 this mode DOCK only answers with the Docking Computer fitted, and its
-autopilot then flies the real approach itself. LAUNCH takes the 10-second
+autopilot then flies the real approach itself, whistling a generated waltz
+(The Blue Danube's spirit, oscillators instead of audio files) for as long
+as it holds the ship. LAUNCH takes the 10-second
 tube ride in both modes (`?autostart` smokes keep the instant launch;
 `?trip=1` takes the ride, `?easy=1` forces easy mode).
 The station screen has two tabs: **Market** (the 17 commodities of
@@ -207,11 +218,15 @@ cost, galaxy 8 wraps to 1, you land on the system nearest the galaxy's centre
 (96, 96) and your legal record is cleared, exactly as the original's
 galactic jump works.
 
-**Save / load**: docking still writes the auto-save that **CONTINUE** on the
+**Save / load**: a fresh commander is asked for a **name** on START or
+RESTART (cancel keeps **JAMESON**); it shows on the status screen, the
+docked screen and every save-slot row, and rides along in the save — old
+saves load unnamed as JAMESON. Docking still writes the auto-save that
+**CONTINUE** on the
 title screen loads. On top of that, the station screen has a **SAVE** button
 next to LAUNCH and the title screen a **LOAD** button next to CONTINUE — both
-open a three-slot menu. Each row shows what is in the slot (system, credits,
-phase, kills) or `empty`; an occupied slot needs a second tap (**CONFIRM**)
+open a three-slot menu. Each row shows what is in the slot (name, system,
+credits, phase, kills) or `empty`; an occupied slot needs a second tap (**CONFIRM**)
 before it is overwritten, and a slot holding an old or corrupt save reads as
 empty, so it can only be replaced, never loaded. `Esc` closes either menu.
 
@@ -234,6 +249,7 @@ node tests/test-instruments.mjs  # live instruments: altitude/impact, cabin heat
 node tests/test-npcs.mjs      # NPC ecosystem: shuttle traffic, flee/engage states, spawn caps
 node tests/test-lasers.mjs    # laser types on the fore/aft mounts, the mount switch, saves
 node tests/test-missiles.mjs  # missile lock: progress, break-lock, dumbfire, incoming seeker
+node tests/test-audio.mjs     # the auto-dock waltz: phrase data in range, six bars
 python3 -m http.server 8099 --directory web   # local server
 # headless smoke test (console errors + screenshots):
 google-chrome --headless=new --virtual-time-budget=6000 --screenshot=/tmp/shot.png \
@@ -273,6 +289,18 @@ google-chrome --headless=new --enable-logging=stderr --virtual-time-budget=6000 
 google-chrome --headless=new --enable-logging=stderr --virtual-time-budget=6000 \
   --user-data-dir=/tmp/oolite-view --screenshot=/tmp/view.png \
   'http://127.0.0.1:8099/?autostart=1&view=aft' 2>&1 | grep CONSOLE
+# the in-system J-drive refuses by the station, with its warning (#20):
+google-chrome --headless=new --enable-logging=stderr --virtual-time-budget=6000 \
+  --user-data-dir=/tmp/oolite-jdrive --screenshot=/tmp/jdrive.png \
+  'http://127.0.0.1:8099/?autostart=1&jdrive=1' 2>&1 | grep CONSOLE
+# the docking computer engages and its music starts (#21):
+google-chrome --headless=new --enable-logging=stderr --virtual-time-budget=8000 \
+  --user-data-dir=/tmp/oolite-dcomp --screenshot=/tmp/dcomp.png \
+  'http://127.0.0.1:8099/?autostart=1&dcomp=1' 2>&1 | grep CONSOLE
+# wireframe display mode, console-clean (#22):
+google-chrome --headless=new --enable-logging=stderr --virtual-time-budget=6000 \
+  --user-data-dir=/tmp/oolite-wire --screenshot=/tmp/wire.png \
+  'http://127.0.0.1:8099/?autostart=1&wire=1' 2>&1 | grep CONSOLE
 ```
 
 `tools/copy-assets.sh` copies the used subset of `upstream/Resources` into

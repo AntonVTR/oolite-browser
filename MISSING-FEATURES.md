@@ -21,6 +21,9 @@ below keep the original description for the record. Items 8–10 closed
 kept below. Items 11–13 closed the same day (branch `iter/space`), likewise.
 Items 14 and 17 closed 2026-11-15 (branch `iter/views`), likewise.
 Items 15, 16 and 18 closed the same day (branch `iter/combat`), likewise.
+Items 19–23 closed 2026-11-15 (branch `iter/polish`), likewise — that
+completes the list: every item above now reads Done or is explicitly
+skipped where noted.
 
 **Ranking:** P1 = core identity of the game, P2 = universe & travel depth,
 P3 = flight/combat depth, P4 = fidelity polish.
@@ -478,24 +481,64 @@ Original: you are Commander Jameson, and `LOAD NEW COMMANDER (Y/N)` plus tape
 saves ask for a name (both sources). Port: no name anywhere; save slots show
 system / credits / kills only (`web/src/slots.js`).
 
+**Done** (branch `iter/polish`): a fresh commander is asked for a name on
+START and RESTART (`nameNewCommander()` in `web/src/main.js`), like the
+original's `LOAD NEW COMMANDER`; cancel or an empty line keeps **JAMESON**.
+The name travels in the save as an optional `name` field (`web/src/save.js`,
+so old saves load as JAMESON), shows as the first field of the status screen
+(`web/src/status.js`), on the docked screen's status block, and leads every
+filled save-slot row (`web/src/slots.js`).
+
 ### 20. In-system J-drive with interference
 ZX guide: `J` makes a fast in-system hop that fails with an audible warning
 when a star, planet or ship is nearby. Port: only Oolite-style injectors
 (BOOST). *Note: Oolite itself dropped the J-drive, so this is ZX-original
 only — implement last, or explicitly skip.*
 
+**Done** (branch `iter/polish`): `jdrive()` in `web/src/game.js`, key `H` —
+a free 20 km hop along the nose that refuses with
+`J-DRIVE BLOCKED — OBSTRUCTION NEARBY` and an audible warning whenever a
+ship, the station, the planet or the sun sits within 3 km of either end of
+the hop (cargo canisters do not count). `J` stays the hyperspace jump: the
+port follows Oolite there, so the ZX drive gets its own key.
+**shortcut**: the ZX drive's real range and failure distances are not
+published, so the port picks its own clear numbers and checks both ends.
+
 ### 21. Docking computer music
 Some versions play "The Blue Danube" during auto-docking (Wikipedia). Port
 already ships `.ogg` UI sounds (`web/assets/sounds`); no music at all.
+
+**Done** (branch `iter/polish`): `startDockMusic()` / `stopDockMusic()` in
+`web/src/audio.js` play a six-bar generated waltz — oscillators scheduled
+from the `WALTZ_BARS` / `WALTZ_MELODY` tables, no audio assets — through the
+same master gain as the `.ogg` sounds while `game.autoDock` holds the ship
+(`web/src/main.js` starts and stops it every frame). The mute flag
+(`GameAudio.enabled`) fades it out and back in, and it stops the moment the
+computer lets go or the ship docks.
 
 ### 22. Wireframe display mode
 The original's signature look is wireframe 3D with hidden-line removal
 (Wikipedia). Port draws textured polygon meshes (Oolite style, deliberate).
 A toggleable wireframe mode would be a cheap nod to the original.
 
+**Done** (branch `iter/polish`): `N` toggles `renderer.wireframe`
+(`web/src/render.js`) — every mesh fills black under a polygon offset, so
+only the front edges stroke through in phosphor green: hidden-line removal
+in the existing pipeline, one extra pass over the same buffers. Edge index
+buffers are built at upload time (`lineIndices()`); a group over 65 535
+verts keeps its fill (WebGL1 has no uint32 indices). `?wire=1` is the
+headless smoke.
+
 ### 23. Trumbles (C64 novelty)
 The Commodore 64 version's tribble-like pets that eat your cargo
 (Wikipedia). Pure flavour — only worth it if everything above is done.
+
+**Done** (branch `iter/polish`): `boardTrumble()` / `feedTrumbles()` in
+`web/src/game.js` — one trumble may crawl aboard when you dock with cargo in
+the hold (1/8 roll), eats a tonne on every arrival after that (food first),
+has its own row on the status screen while aboard, and travels in the save.
+**shortcut**: no multiplying litters and no sprite — a counted pet, the
+C64's novelty without the sprites.
 
 ---
 
