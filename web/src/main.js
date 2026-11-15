@@ -497,6 +497,11 @@ function frame(now) {
 
   syncPhase();
   playEvents();
+  // The auto-dock jingle (#21): a waltz while the docking computer flies, off
+  // again the moment it lets go — start/stop are idempotent, so every frame
+  // just states the truth.
+  if (game.autoDock && game.phase === 'flight') audio.startDockMusic();
+  else audio.stopDockMusic();
 
   if (game.phase === 'flight') {
     renderScene();
@@ -741,6 +746,12 @@ async function main() {
     // ?jdrive presses the in-system J-drive once (headless smoke, #20): with
     // the station right ahead the drive must refuse, warn and stay put
     if (query.has('jdrive')) window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyH' }));
+    // ?dcomp fits the docking computer and presses DOCK (headless smoke, #21):
+    // the autopilot takes the ship and its music must start without errors
+    if (query.has('dcomp')) {
+      game.player.equipment.EQ_DOCK_COMP = true;
+      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Enter' }));
+    }
     // ?chart opens the short-range chart, ?chart=long the whole galaxy (#9)
     if (query.has('chart')) {
       toggleChartUI(query.get('chart') === 'long' ? 'long' : undefined);
