@@ -34,6 +34,8 @@ let boomTex;
 let jumpRequested = false;
 let prevPhase = 'title';
 let storage = null; // localStorage, or null where storage is unavailable
+let easyBox = null; // the EASY MODE checkbox on the title screen (#6)
+const EASY_KEY = 'oolite.easyDock';
 let lastT = performance.now();
 let fpsSmooth = 60;
 
@@ -520,6 +522,32 @@ async function main() {
     el('title').insertBefore(load, titleAnchor);
   }
 
+  // Easy mode (MISSING-FEATURES #6): on = the assisted docking shortcut the
+  // game always had, off (default) = real docking. A local preference — it
+  // applies to every game started after it changes. ?easy / ?dock force it
+  // for the headless smokes; `query` below is a separate, later read.
+  const titleQuery = new URLSearchParams(location.search);
+  let easyPref = titleQuery.has('easy') || titleQuery.has('dock');
+  try {
+    easyPref = easyPref || localStorage.getItem(EASY_KEY) === '1';
+  } catch { /* storage unavailable: stay with the default */ }
+  const easyRow = document.createElement('label');
+  easyRow.className = 'hint';
+  easyRow.id = 'easyRow';
+  easyRow.style.display = 'block';
+  easyRow.style.cursor = 'pointer';
+  easyBox = document.createElement('input');
+  easyBox.type = 'checkbox';
+  easyBox.id = 'chkEasy';
+  easyBox.checked = easyPref;
+  easyRow.append(easyBox, document.createTextNode(' EASY MODE — ASSISTED DOCKING (off = real)'));
+  el('title').insertBefore(easyRow, el('btnStart'));
+  easyBox.addEventListener('change', () => {
+    game.easyDock = easyBox.checked;
+    try { localStorage.setItem(EASY_KEY, easyBox.checked ? '1' : '0'); } catch { /* ignore */ }
+  });
+  game.easyDock = easyPref;
+
   // The chart and the status screen both own the flight screen, so opening
   // one closes the other — keys, the two buttons and ?chart/?status all
   // route through these.
@@ -565,6 +593,7 @@ async function main() {
   });
   el('btnRestart').addEventListener('click', () => {
     game = createGame(assets);
+    game.easyDock = easyBox.checked; // the checkbox survives a restart
     prevPhase = 'title';
     audio.unlock();
     launch(game);
