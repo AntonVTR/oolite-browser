@@ -24,7 +24,11 @@ const shipyard = parsePlist(read('config/shipyard.plist'));
 const tradeGoods = parsePlist(read('config/trade-goods.plist'));
 // no meshes: radiusOf() falls back to 60 m, which is all the mission logic needs
 const assets = { plists: { shipyard, shipdata, 'trade-goods': tradeGoods }, parsedMeshes: {} };
-const newGame = () => createGame(assets);
+const newGame = () => {
+  const g = createGame(assets);
+  g.rand = () => 1; // pin the jump rolls: no mis-jump may fire by chance (#10)
+  return g;
+};
 
 // ---- chain order and accepting ---------------------------------------------
 const g = newGame();

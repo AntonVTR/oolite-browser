@@ -43,6 +43,7 @@ g.spawnTimer = 1e9;
 g.player.credits = 5000;
 assert.ok(buyGood(g, 'food', 4), 'buy cargo to carry across the save');
 g.systemIndex = 42; // pretend we jumped on
+g.galaxy = 3;        // ...into another galaxy (#8)
 g.kills = 3;
 g.player.equipment = { EQ_ECM: true }; // fitted gear rides along
 g.player.pylons = 6;                   // and so do the bought missile racks
@@ -57,6 +58,7 @@ assert.strictEqual(applySave(back, parseSave(text)), true, 'save applies');
 assert.strictEqual(back.phase, 'docked');
 assert.strictEqual(back.hudVisible, false);
 assert.strictEqual(back.systemIndex, 42);
+assert.strictEqual(back.galaxy, 3, 'the galaxy travels with the save');
 assert.strictEqual(back.kills, 3);
 assert.strictEqual(back.player.credits, g.player.credits);
 assert.strictEqual(back.player.fuel, g.player.fuel);
@@ -72,6 +74,11 @@ assert.deepStrictEqual(parseSave(JSON.stringify(legacy)).player.equipment, {},
   'old saves load without equipment');
 assert.strictEqual(parseSave(JSON.stringify(legacy)).player.pylons, 0,
   'and without the extra pylons');
+// a save from before the galactic drive existed loads in galaxy 1
+const preGalaxy = JSON.parse(serializeSave(g));
+delete preGalaxy.galaxy;
+assert.strictEqual(parseSave(JSON.stringify(preGalaxy)).galaxy, 1,
+  'old saves load in galaxy 1');
 assert.strictEqual(cargoUsed(back), 4);
 assert.ok(back.entities.every((e) => e.type === 'station'),
   'world is rebuilt, not saved');
@@ -135,6 +142,8 @@ const bad = [
   JSON.stringify({ ...base, phase: 'dead' }),
   JSON.stringify({ ...base, systemIndex: 999 }),              // outside the galaxy
   JSON.stringify({ ...base, systemIndex: 7.5 }),
+  JSON.stringify({ ...base, galaxy: 9 }),                     // no ninth galaxy
+  JSON.stringify({ ...base, galaxy: 1.5 }),
   JSON.stringify({ ...base, kills: -1 }),
   JSON.stringify({ ...base, player: null }),
   JSON.stringify({ ...base, player: { ...base.player, shipKey: '' } }),
@@ -171,6 +180,7 @@ assert.strictEqual(saveSlot(g, 0, store), true, 'docked game saves into a slot')
 assert.strictEqual(hasAnySlot(store), true, 'the LOAD button has something to show');
 const info = slotInfo(0, store);
 assert.strictEqual(info.systemIndex, 42);
+assert.strictEqual(info.galaxy, 3, 'the slot row knows which galaxy it holds');
 assert.strictEqual(info.phase, 'docked');
 assert.strictEqual(info.credits, g.player.credits);
 assert.strictEqual(info.kills, g.kills);

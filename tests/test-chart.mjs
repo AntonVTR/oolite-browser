@@ -9,7 +9,8 @@ import { dirname, join } from 'node:path';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const { parsePlist } = await import(join(root, 'web/src/plist.js'));
 const { createGame, launch, jump, SYSTEMS } = await import(join(root, 'web/src/game.js'));
-const { chartRows, GOVERNMENTS, ECONOMIES, CHART_RANGE_LY } =
+const { chartRows, longRangeRows, systemReadout, ringSize, GOVERNMENTS,
+  ECONOMIES, CHART_RANGE_LY } =
   await import(join(root, 'web/src/chart.js'));
 const { distanceLy } = await import(join(root, 'web/src/galaxy.js'));
 
@@ -23,6 +24,7 @@ const assets = {
 };
 
 const g = createGame(assets);
+g.rand = () => 1; // pin the jump rolls: no mis-jump may fire by chance (#10)
 launch(g);
 g.entities = g.entities.filter((e) => e.type === 'station');
 g.spawnTimer = 1e9;
@@ -57,6 +59,51 @@ for (const r of rows) {
     `${sys.name} cost is the distance jump() charges`);
   assert.strictEqual(r.reachable, r.distance <= CHART_RANGE_LY, 'full tank reaches all of it');
 }
+
+// ---- long-range view and the data screen (#9) ------------------------------
+const longRows = longRangeRows(g);
+assert.strictEqual(longRows.length, 255, 'the long-range list holds the whole galaxy');
+assert.ok(longRows.every((r) => r.index !== from.index), 'except the current system');
+assert.ok(longRows.some((r) => r.distance > CHART_RANGE_LY),
+  'systems beyond the 7 ly ring are listed too');
+for (let i = 1; i < longRows.length; i++) {
+  assert.ok(longRows[i - 1].distance <= longRows[i].distance, 'nearest first');
+}
+// the short-range chart is exactly that list clipped to the ring
+assert.deepStrictEqual(chartRows(g), longRows.filter((r) => r.distance <= CHART_RANGE_LY),
+  'short range = long range inside the 7 ly ring');
+// both views follow the commander's galaxy, not the galaxy-1 fixture
+g.galaxy = 2;
+assert.notDeepStrictEqual(longRangeRows(g).map((r) => r.name),
+  longRows.map((r) => r.name), 'the long view switches with the galaxy');
+g.galaxy = 1;
+
+// the data screen: every field is galaxy.js's own, nothing invented
+const other = longRows[0];
+const ro = systemReadout(g, other.index);
+const sys = SYSTEMS[other.index];
+assert.strictEqual(ro.name, sys.name, 'name');
+assert.strictEqual(ro.distance, other.distance, 'distance to the present system');
+assert.strictEqual(ro.economy, ECONOMIES[sys.economy], 'economy');
+assert.strictEqual(ro.government, GOVERNMENTS[sys.government], 'government');
+assert.strictEqual(ro.techLevel, sys.techLevel, 'tech level');
+assert.strictEqual(ro.population, sys.population, 'population');
+assert.strictEqual(ro.productivity, sys.productivity, 'gross productivity');
+assert.strictEqual(ro.radius, sys.radius, 'average radius');
+assert.strictEqual(ro.description, sys.description, 'description');
+assert.ok(ro.population > 0 && ro.productivity > 0 && ro.radius > 0, 'figures present');
+assert.strictEqual(systemReadout(g, g.systemIndex).distance, 0, 'you are 0 ly from yourself');
+assert.strictEqual(systemReadout(g, 999), null, 'unknown index has no data');
+
+// the fuel ring: fuel/2 chart units across, drawn in each view's projection
+const shortRing = ringSize(70, 'short');
+assert.strictEqual(shortRing.width, (35 / 64) * 100, 'full tank spans 35 of the 64-unit window');
+assert.strictEqual(shortRing.height, (35 / 128) * 100, 'y over 128, the drawStarChart window');
+assert.strictEqual(((shortRing.width / 100) * 64) / 2 * 0.4, 7,
+  'the ring really is the 7 ly jump range');
+const longRing = ringSize(70, 'long');
+assert.strictEqual(longRing.width, shortRing.width / 4, 'long view is the same ring at 4× zoom-out');
+assert.strictEqual(longRing.height, shortRing.height / 4, 'both axes zoom together');
 
 // ---- jump to the chosen system ----------------------------------------------
 const pick = rows[0];

@@ -53,6 +53,7 @@ const assets = { plists: { shipyard, shipdata, equipment, 'trade-goods': tradeGo
 const noInput = () => ({});
 
 const g = createGame(assets);
+g.rand = () => 1; // pin the jump rolls: no mis-jump may fire by chance (#10)
 assert.strictEqual(g.phase, 'title');
 assert.strictEqual(g.hudVisible, false);
 assert.ok(g.station && g.station.type === 'station', 'station spawned');

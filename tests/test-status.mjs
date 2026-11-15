@@ -58,4 +58,10 @@ g.systemIndex = 0;
 assert.strictEqual(field(statusRows(g), 'Present system'), 'TIBEDIED',
   `present system follows the galaxy (${SYSTEMS[0].name})`);
 
+// stranded in witchspace (#10) there is no system to show, only the state
+g.witchspace = true;
+assert.ok(field(statusRows(g), 'Present system').includes('WITCHSPACE'),
+  'the status screen says where you really are');
+g.witchspace = false;
+
 console.log('status: all checks passed');

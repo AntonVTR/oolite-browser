@@ -291,6 +291,15 @@ function generateDescription(seed, name) {
 // Public API
 // ---------------------------------------------------------------------------
 
+// Every screen reads its systems through this: the commander's galaxy lives
+// in g.galaxy (1..8, MISSING-FEATURES #8) and each one is generated once.
+const GALAXY_CACHE = new Map();
+export function galaxySystems(galaxyNumber = 1) {
+  const n = ((galaxyNumber - 1) & 7) + 1; // wrap at 8, as upstream
+  if (!GALAXY_CACHE.has(n)) GALAXY_CACHE.set(n, makeGalaxy(n).systems);
+  return GALAXY_CACHE.get(n);
+}
+
 // Galaxy numbers are 1-based (makeGalaxy(1) is the galaxy Lave is in);
 // wrapping at 8 matches upstream's galaxy_number &= 7.
 export function makeGalaxy(galaxyNumber = 1) {

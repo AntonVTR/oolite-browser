@@ -6,7 +6,7 @@
 // crash the game — loadGame() just returns false and the title screen starts
 // fresh.
 
-import { spawnPirate, spawnTrader, spawnPolice } from './game.js';
+import { spawnPirate, spawnTrader, spawnPolice, spawnStation } from './game.js';
 import { missionState, MISSION_IDS } from './missions.js';
 
 export const SAVE_KEY = 'oolite-browser.save';
@@ -42,6 +42,14 @@ function validate(data) {
   if (data.phase !== 'flight' && data.phase !== 'docked') return null;
   if (!Number.isInteger(data.systemIndex) || data.systemIndex < 0 || data.systemIndex > 255) return null;
   if (!num(data.kills) || data.kills < 0) return null;
+  // The galaxy (1..8, #8) is optional so saves written before it existed
+  // still load; when present it must be a real galaxy number, or the whole
+  // save is refused (same rule as crime below).
+  let galaxy = 1;
+  if (data.galaxy !== undefined) {
+    if (!Number.isInteger(data.galaxy) || data.galaxy < 1 || data.galaxy > 8) return null;
+    galaxy = data.galaxy;
+  }
   // Legal status is optional so saves written before it existed still load;
   // when present it must be a sane number, or the whole save is refused.
   let crime = 0;
@@ -83,7 +91,7 @@ function validate(data) {
     for (const [k, v] of Object.entries(p.equipment)) if (v === true) player.equipment[k] = true;
   }
   return { v: SAVE_VERSION, phase: data.phase, systemIndex: data.systemIndex,
-    kills: data.kills, crime, mission, player };
+    galaxy, kills: data.kills, crime, mission, player };
 }
 
 export function saveData(g) {
@@ -92,6 +100,7 @@ export function saveData(g) {
   for (const f of PLAYER_FIELDS) player[f] = p[f];
   player.equipment = { ...p.equipment };
   return { v: SAVE_VERSION, phase: g.phase, systemIndex: g.systemIndex,
+    galaxy: g.galaxy || 1,
     kills: g.kills, crime: g.crime,
     mission: { active: g.mission.active, jumps: g.mission.jumps, done: [...g.mission.done] },
     player };
@@ -119,6 +128,7 @@ export function applySave(g, data) {
   g.phase = d.phase;
   g.hudVisible = d.phase === 'flight';
   g.systemIndex = d.systemIndex;
+  g.galaxy = d.galaxy;
   g.kills = d.kills;
   g.crime = d.crime;
   g.mission = d.mission;
@@ -139,6 +149,10 @@ export function applySave(g, data) {
   g.launchSeq = 0; // never resume a launch ride from a save
   g.ecmTime = 0;
   g.ecmCooldown = 0;
+  g.markets = {}; // prices belong to a (galaxy, system) pair — start clean (#8)
+  g.galConfirm = false;
+  g.witchspace = false; // saves never hold a stranded commander (#10)
+  if (!g.station) spawnStation(g); // a load always restores a station
   if (d.phase === 'flight') {
     const st = g.station;
     g.player.pos = [st.pos[0] + 1200, st.pos[1], st.pos[2] - 2966];
@@ -204,6 +218,7 @@ export function slotInfo(i, storage = defaultStorage()) {
     return {
       phase: d.phase,
       systemIndex: d.systemIndex,
+      galaxy: d.galaxy,
       kills: d.kills,
       credits: d.player.credits,
     };

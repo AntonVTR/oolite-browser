@@ -57,6 +57,13 @@ gyro, keyboard/mouse and gamepad.
 - **Thargoid warship** on its real mesh and texture: hostile, fast, it never
   breaks off and shoots missiles often. The Constrictor and the Adder join the
   pirate and trader rosters — 14 ship types in the sky now.
+- **Witchspace interception**: 0.78% of jumps mis-jump — the original's own
+  odds — and strand you in witchspace with the jump's fuel already spent: no
+  station anywhere (DOCK answers `NO STATION TO DOCK AT`, the status screen
+  reads `WITCHSPACE (no station)`) and three Thargoids on you. Jump out if
+  the tank still buys a hop; dry, each JUMP press gets a luck roll (25%,
+  doubled by the Witchdrive Fuel Injectors), and the escape pod is fatal in
+  witchspace, as in the original.
 - **Missions**: the Galactic Navy chain — hunt down the stolen Constrictor,
   then carry Thargoid intelligence across three jumps. The briefing is on the
   docked screen with an ACCEPT button, progress shows in the HUD messages
@@ -70,10 +77,10 @@ gyro, keyboard/mouse and gamepad.
   priority AI), which this port does not have. The Galactic Navy chain itself
   is hand-rolled as plain data instead (see below, #7); the rest of Oolite's
   script content is untouched.
-- 32 of the 41 equipment types — the shop sells nine of them (cargo bay,
+- 31 of the 41 equipment types — the shop sells ten of them (cargo bay,
   extra energy unit, shield boosters, docking computer, fuel scoops, escape
-  pod, fuel injectors, E.C.M., missiles), while lasers, cloak, passenger
-  berth, galactic drive and the rest are not modelled — plus ship AI scripts
+  pod, fuel injectors, E.C.M., missiles, galactic hyperdrive), while lasers,
+  cloak, passenger berth and the rest are not modelled — plus ship AI scripts
   (`.js`), mines and missile-vs-missile interception.
 - Cockpit view, real sun/planet textures (both are shaded spheres), wormholes.
 
@@ -114,17 +121,31 @@ The station screen has two tabs: **Market** (the 17 commodities of
 `trade-goods.plist`, each with the price and stock the current system's
 economy gives it — food is cheap where it is grown, computers where they are
 built — and contraband tagged **ILLEGAL**; selling it is a crime. Below them
-an **Equipment** section with nine items at their real `equipment.plist`
+an **Equipment** section with ten items at their real `equipment.plist`
 prices: Large Cargo Bay (+15 t hold), Extra Energy Unit (recharge ×1.8),
 Shield Boosters (+128 shields), E.C.M. System, missiles (300 CR each — past
 the hull's pylons every missile brings its own rack), Fuel Scoops (skim the
 sun's corona to refill the tank), Escape Pod (destruction becomes a rescue:
 same ship, cargo lost), Witchdrive Fuel Injectors (BOOST does nothing until
-they are bought) and the Docking Computer. The other tab is **Shipyard**
+they are bought), the Docking Computer and the **Galactic Hyperdrive**
+(50 000 CR — one jump to the next galaxy, fired from the chart, see below). The other tab is **Shipyard**
 (eleven hulls with
 real `shipyard.plist` prices; your current ship is traded in at ~71% of its
 price, cargo is sold off automatically, and a bought hull leaves the stock for
 good). Refuel from the same screen.
+
+**Chart** (`C` / CHART): a **SHORT RANGE** view — everything inside the 7 ly
+ring with its real data — and a **LONG RANGE** view of the whole galaxy, each
+with a tap-to-select **system data** panel under the map: distance, economy,
+government, tech level, population, gross productivity, average radius and
+the system description, the same fields the original's data screen shows.
+Tapping a star or a row moves the panel; JUMP still flies the hop. With the
+**Galactic Hyperdrive** fitted (50 000 CR) the chart also carries a
+**GALACTIC JUMP** button — press it **twice** (first arms it,
+`CONFIRM — GALAXY n`) to cross into the next galaxy: one-shot drive, no fuel
+cost, galaxy 8 wraps to 1, you land on the system nearest the galaxy's centre
+(96, 96) and your legal record is cleared, exactly as the original's
+galactic jump works.
 
 **Save / load**: docking still writes the auto-save that **CONTINUE** on the
 title screen loads. On top of that, the station screen has a **SAVE** button
@@ -144,6 +165,8 @@ node tests/test-view.mjs      # camera / coordinate-frame convention
 node tests/test-touch.mjs     # double-tap zoom guard
 node tests/test-save.mjs      # auto-save round trip, bad saves rejected, manual slots
 node tests/test-missions.mjs  # Navy missions: offer order, accept, jump progress, reward, save
+node tests/test-chart.mjs     # short/long chart views, system data screen, fuel ring, jump range
+node tests/test-travel.mjs    # galactic hyperspace and witchspace: crossing, stranding, escape
 python3 -m http.server 8099 --directory web   # local server
 # headless smoke test (console errors + screenshots):
 google-chrome --headless=new --virtual-time-budget=6000 --screenshot=/tmp/shot.png \
@@ -166,6 +189,15 @@ google-chrome --headless=new --virtual-time-budget=6000 --screenshot=/tmp/easy.p
   'http://127.0.0.1:8099/?autostart=1&easy=1'
 google-chrome --headless=new --virtual-time-budget=13000 --screenshot=/tmp/trip.png \
   'http://127.0.0.1:8099/?autostart=1&trip=1'
+# the long-range chart: whole galaxy + system data panel, console-clean:
+google-chrome --headless=new --enable-logging=stderr --virtual-time-budget=6000 \
+  --window-size=760,1400 --user-data-dir=/tmp/oolite-long \
+  --screenshot=/tmp/long.png \
+  'http://127.0.0.1:8099/?autostart=1&chart=long' 2>&1 | grep CONSOLE
+# the forced mis-jump: stranded in witchspace with three Thargoids, console-clean:
+google-chrome --headless=new --enable-logging=stderr --virtual-time-budget=8000 \
+  --user-data-dir=/tmp/oolite-witch --screenshot=/tmp/witch.png \
+  'http://127.0.0.1:8099/?autostart=1&witchspace=1' 2>&1 | grep CONSOLE
 ```
 
 `tools/copy-assets.sh` copies the used subset of `upstream/Resources` into
