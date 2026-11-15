@@ -45,6 +45,7 @@ assert.ok(buyGood(g, 'food', 4), 'buy cargo to carry across the save');
 g.systemIndex = 42; // pretend we jumped on
 g.kills = 3;
 g.player.equipment = { EQ_ECM: true }; // fitted gear rides along
+g.player.pylons = 6;                   // and so do the bought missile racks
 dock(g);
 assert.strictEqual(g.phase, 'docked');
 
@@ -62,11 +63,15 @@ assert.strictEqual(back.player.fuel, g.player.fuel);
 assert.strictEqual(back.player.shipKey, 'cobra3-player');
 assert.deepStrictEqual(back.player.cargo, g.player.cargo, 'manifest survives');
 assert.deepStrictEqual(back.player.equipment, { EQ_ECM: true }, 'fitted equipment survives');
+assert.strictEqual(back.player.pylons, 6, 'bought missile pylons survive');
 // a save from before equipment existed loads with an empty rack
 const legacy = JSON.parse(serializeSave(g));
 delete legacy.player.equipment;
+delete legacy.player.pylons;
 assert.deepStrictEqual(parseSave(JSON.stringify(legacy)).player.equipment, {},
   'old saves load without equipment');
+assert.strictEqual(parseSave(JSON.stringify(legacy)).player.pylons, 0,
+  'and without the extra pylons');
 assert.strictEqual(cargoUsed(back), 4);
 assert.ok(back.entities.every((e) => e.type === 'station'),
   'world is rebuilt, not saved');
@@ -136,6 +141,7 @@ const bad = [
   JSON.stringify({ ...base, player: { ...base.player, cargo: { food: 'lots' } } }),
   JSON.stringify({ ...base, player: { ...base.player, credits: 'NaN' } }),
   JSON.stringify({ ...base, player: { ...base.player, fuel: null } }),
+  JSON.stringify({ ...base, player: { ...base.player, pylons: 'many' } }),
   JSON.stringify({ ...base, player: { ...base.player, maxSpeed: undefined } }),
 ];
 for (const text2 of bad) {

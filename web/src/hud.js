@@ -237,7 +237,10 @@ export class Hud {
     ctx.strokeStyle = this.rgba(GREEN, p.a);
     ctx.fillStyle = this.rgba(GREEN, p.a);
     ctx.lineWidth = Math.max(1, this.L(1));
-    for (let i = 0; i < 4; i++) {
+    // four slots for the hull's pylons, one more per bought rack — eight is
+    // the most that fits on the dial
+    const slots = Math.max(4, Math.min(8, n));
+    for (let i = 0; i < slots; i++) {
       const ux = p.x + i * (info.spacing || 16);
       const px = this.X(ux);
       const py = this.Y(p.y);

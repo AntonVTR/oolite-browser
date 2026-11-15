@@ -47,7 +47,8 @@ gyro, keyboard/mouse and gamepad.
   blastPower 180). Hostile ships loose their own at you.
 - **ECM**: buy the E.C.M. System, fire it with `X` / ECM — four pulses sweep
   out to 25.6 km over 2.5 s and detonate incoming missiles, drain energy, then
-  rest for 5 s. Extra missiles (300 CR) fill free pylons.
+  rest for 5 s. Extra missiles (300 CR) fill free pylons; past the hull's own
+  count each missile brings its own rack.
 - **Thargoid warship** on its real mesh and texture: hostile, fast, it never
   breaks off and shoots missiles often. The Constrictor and the Adder join the
   pirate and trader rosters — 14 ship types in the sky now.
@@ -57,8 +58,11 @@ gyro, keyboard/mouse and gamepad.
 - Mission scripts from `Resources/Scripts/*.js` — skipped: they need Oolite's
   own JavaScript engine (ship/player host objects, mission variables, priority
   AI), which this port does not have.
-- 39 of the 41 equipment types (only E.C.M. and missiles are modelled), ship
-  AI scripts (`.js`), mines, cloak, escape pod, missile-vs-missile interception.
+- 32 of the 41 equipment types — the shop sells nine of them (cargo bay,
+  extra energy unit, shield boosters, docking computer, fuel scoops, escape
+  pod, fuel injectors, E.C.M., missiles), while lasers, cloak, passenger
+  berth, galactic drive and the rest are not modelled — plus ship AI scripts
+  (`.js`), mines and missile-vs-missile interception.
 - Cockpit view, real sun/planet textures (both are shaded spheres), wormholes.
 
 ## Controls
@@ -81,13 +85,21 @@ gyro, keyboard/mouse and gamepad.
 | Gyro steering | `G` | GYRO | — |
 | Fullscreen | `F11` (browser) | FULL | — |
 
-Docking: fly within 400 m of the station at under 120 m/s (or press DOCK under
-1500 m). The station screen has two tabs: **Market** (the 17 commodities of
+Docking: fly within 400 m of the station at under 120 m/s, or press DOCK under
+1500 m — with a **Docking Computer** fitted the same request is an autopilot
+that turns onto the station from any range and slows itself for the contact.
+The station screen has two tabs: **Market** (the 17 commodities of
 `trade-goods.plist`, each with the price and stock the current system's
 economy gives it — food is cheap where it is grown, computers where they are
-built — and contraband tagged **ILLEGAL**; selling it is a crime. Below them an
-**Equipment** section — the E.C.M. System for 6 000 CR and extra missiles for
-300 CR each, up to the hull's pylon count) and **Shipyard** (eleven hulls with
+built — and contraband tagged **ILLEGAL**; selling it is a crime. Below them
+an **Equipment** section with nine items at their real `equipment.plist`
+prices: Large Cargo Bay (+15 t hold), Extra Energy Unit (recharge ×1.8),
+Shield Boosters (+128 shields), E.C.M. System, missiles (300 CR each — past
+the hull's pylons every missile brings its own rack), Fuel Scoops (skim the
+sun's corona to refill the tank), Escape Pod (destruction becomes a rescue:
+same ship, cargo lost), Witchdrive Fuel Injectors (BOOST does nothing until
+they are bought) and the Docking Computer. The other tab is **Shipyard**
+(eleven hulls with
 real `shipyard.plist` prices; your current ship is traded in at ~71% of its
 price, cargo is sold off automatically, and a bought hull leaves the stock for
 good). Refuel from the same screen.

@@ -242,6 +242,14 @@ export function spawnPolice(g) {
   return s;
 }
 
+// The sun: main.js draws it as a sphere at exactly this spot, and the fuel
+// scoops only work inside its corona, so the simulation carries the position
+// too. Distance is measured from the sun's centre.
+export const SUN_POS = [-30000, 25000, -50000];
+export const SUN_R = 9000;
+const SUN_CORONA = SUN_R * 1.5; // scoop range from the centre, metres
+const SCOOP_RATE = 20;          // fuel units (0.1 ly) per second while skimming
+
 // ---------------------------------------------------------------------------
 export function createGame(assets) {
   const g = {
@@ -290,6 +298,8 @@ export function createGame(assets) {
 
     player: null,
     station: null,
+    autoDock: false, // a fitted docking computer is flying the ship
+    scooping: false, // the fuel scoops are drinking at the sun
     spawnTimer: 0,
     weaponCooldown: 0,
     weaponTemp: 0,
@@ -317,9 +327,9 @@ export function createGame(assets) {
     yawRate: (pd.max_flight_pitch || 1) / 4,
     energy: pd.max_energy || 256,
     maxEnergy: pd.max_energy || 256,
-    maxShield: 150,
-    fwdShield: 150,
-    aftShield: 150,
+    maxShield: BASE_MAX_SHIELD,
+    fwdShield: BASE_MAX_SHIELD,
+    aftShield: BASE_MAX_SHIELD,
     fuel: pd.fuel || 70,
     maxCargo: pd.max_cargo || 20,
     missiles: pd.max_missiles || 0,
@@ -328,6 +338,7 @@ export function createGame(assets) {
     credits: 100,
     cargo: {},
     equipment: {}, // fitted gear: EQ_ECM, …
+    pylons: 0,    // extra missile racks bought beyond the hull's own
     shipKey: 'cobra3-player', // yard key of the starting hull, for trade-in
     alive: true,
   };
@@ -483,12 +494,13 @@ export function buyShip(g, key) {
   p.pitchRate = d.max_flight_pitch || 1;
   p.rollRate = d.max_flight_roll || 2;
   p.yawRate = (d.max_flight_pitch || 1) / 4;
-  p.maxEnergy = d.max_energy || 256;
-  p.energy = p.maxEnergy;
-  p.maxCargo = d.max_cargo || 20;
   p.missiles = d.max_missiles || 0;
   p.radius = radiusOf(g, key);
   p.fuel = d.fuel || 70;
+  // hull stats first, then the fitted gear that adds to them (the cargo bay
+  // and the shield booster follow the commander to the new ship)
+  applyEquipmentStats(g);
+  p.energy = p.maxEnergy;
   g.yardStock = g.yardStock.filter((k) => k !== key);
   pushMessage(g, `${shipName(g, key).toUpperCase()} BOUGHT — TRADE-IN ${tradeIn} CR`, GREEN, 6);
   g.events.push({ type: 'buy' });
@@ -497,12 +509,48 @@ export function buyShip(g, key) {
 
 // ---- equipment -------------------------------------------------------------
 // Sold at the station the way the shipyard sells hulls, at the real
-// equipment.plist prices. The port models two items of Oolite's 41.
-// shortcut: no tech-level or ship-compatibility gating on what is listed.
-const EQUIPMENT_KEYS = ['EQ_ECM', 'EQ_MISSILE'];
+// equipment.plist prices, listed by the plist's own techlevel.
+// shortcut: no ship-compatibility gating — everything on the list fits.
+const EQUIPMENT_KEYS = [
+  'EQ_CARGO_BAY', 'EQ_MISSILE', 'EQ_ECM', 'EQ_FUEL_SCOOPS', 'EQ_ESCAPE_POD',
+  'EQ_ENERGY_UNIT', 'EQ_DOCK_COMP', 'EQ_FUEL_INJECTION', 'EQ_SHIELD_BOOSTER',
+];
+
+// Fitted gear that changes the ship's numbers. Oolite applies the three
+// stat items in addEquipmentItem / oolite-equipment-control.js from the same
+// equipment.plist script_info values; here they are re-derived from the hull
+// and the equipment, so a hull swap at the shipyard keeps them.
+const EXTRA_CARGO = 15;           // shipdata extra_cargo default, tonnes
+const SHIELD_BOOST = 128;         // equipment.plist oolite_shield_increase
+const ENERGY_RECHARGE_MULT = 1.8; // equipment.plist oolite_energy_recharge_multiplier
+const BASE_MAX_SHIELD = 150;
+
+export function applyEquipmentStats(g) {
+  const p = g.player;
+  const d = def(g, p.shipKey);
+  const eq = p.equipment;
+  p.maxCargo = (d.max_cargo || 20) + (eq.EQ_CARGO_BAY ? EXTRA_CARGO : 0);
+  p.maxEnergy = d.max_energy || 256;
+  p.maxShield = BASE_MAX_SHIELD + (eq.EQ_SHIELD_BOOSTER ? SHIELD_BOOST : 0);
+  p.energy = Math.min(p.energy, p.maxEnergy);
+  p.fwdShield = Math.min(p.fwdShield, p.maxShield);
+  p.aftShield = Math.min(p.aftShield, p.maxShield);
+}
+
+// The row's hint column: what the item does before it is bought.
+const EQUIPMENT_NOTES = {
+  EQ_CARGO_BAY: `+${EXTRA_CARGO} t hold`,
+  EQ_ENERGY_UNIT: `recharge ×${ENERGY_RECHARGE_MULT}`,
+  EQ_SHIELD_BOOSTER: `+${SHIELD_BOOST} shields`,
+  EQ_DOCK_COMP: 'auto-dock on DOCK',
+  EQ_FUEL_SCOOPS: 'skim the sun',
+  EQ_ESCAPE_POD: 'survives destruction',
+  EQ_FUEL_INJECTION: 'boost ×2.5',
+};
 
 export function missileCap(g) {
-  return def(g, g.player.shipKey).max_missiles || 0;
+  // the hull's built-in pylons plus every extra rack bought at the station
+  return Math.max(def(g, g.player.shipKey).max_missiles || 0, g.player.pylons || 0);
 }
 
 export function equipmentFor(g) {
@@ -511,12 +559,15 @@ export function equipmentFor(g) {
   return EQUIPMENT_KEYS.map((key) => {
     const e = stock.find((row) => row[3] === key);
     if (!e) return null;
+    const row = { key, name: e[2], price: e[1] };
     if (key === 'EQ_MISSILE') {
-      const cap = missileCap(g);
-      return { key, name: e[2], price: e[1], note: `pylons ${p.missiles}/${cap}`, can: p.missiles < cap };
+      // A missile fills a free pylon; past the hull's own pylons it brings its
+      // own rack, so the row never runs out of something to sell.
+      // shortcut: Oolite hulls have fixed pylons and sell no extra racks.
+      return { ...row, note: `pylons ${p.missiles}/${missileCap(g)}`, can: true };
     }
     const owned = !!p.equipment[key];
-    return { key, name: e[2], price: e[1], note: owned ? 'fitted' : '', can: !owned };
+    return { ...row, note: owned ? 'fitted' : EQUIPMENT_NOTES[key] || '', can: !owned };
   }).filter(Boolean);
 }
 
@@ -526,10 +577,20 @@ export function buyEquipment(g, key) {
   if (!row || !row.can) return false;
   if (p.credits < row.price) { pushMessage(g, 'INSUFFICIENT CREDITS', RED); return false; }
   p.credits -= row.price;
-  if (key === 'EQ_MISSILE') p.missiles++;
-  else p.equipment[key] = true;
+  let racked = true;
+  if (key === 'EQ_MISSILE') {
+    const cap = missileCap(g);
+    p.missiles++;
+    racked = p.missiles <= cap;
+    if (!racked) p.pylons = Math.max(p.pylons || 0, p.missiles);
+  } else {
+    p.equipment[key] = true;
+    applyEquipmentStats(g);
+  }
   g.events.push({ type: 'buy' });
-  pushMessage(g, key === 'EQ_MISSILE' ? 'MISSILE FITTED' : `${row.name.toUpperCase()} FITTED`, GREEN);
+  pushMessage(g, key === 'EQ_MISSILE'
+    ? (racked ? 'MISSILE FITTED' : 'MISSILE + PYLON FITTED')
+    : `${row.name.toUpperCase()} FITTED`, GREEN);
   return true;
 }
 
@@ -537,6 +598,7 @@ export function dock(g) {
   g.phase = 'docked';
   g.hudVisible = false;
   g.alert = 'green';
+  g.autoDock = false; // whatever was flying the ship has let go
   // Simplest rule for clearing a record: docking forgives every crime.
   if (g.crime > 0) {
     g.crime = 0;
@@ -675,6 +737,24 @@ function damageShip(g, ship, amount, fromPlayer) {
   }
 }
 
+// ---- escape pod ------------------------------------------------------------
+// The pod tows the commander back to the station: the ship and everything
+// fitted to it survive, the manifest does not (MISSING-FEATURES.md #5).
+function escapePod(g) {
+  const p = g.player;
+  p.cargo = {};
+  p.energy = p.maxEnergy;
+  p.fwdShield = p.maxShield;
+  p.aftShield = p.maxShield;
+  g.explosions.push({ pos: p.pos.slice(), life: 1.2, maxLife: 1.2, size: p.radius * 4 });
+  g.events.push({ type: 'boom' });
+  g.missiles = [];
+  g.shots = [];
+  g.target = null;
+  dock(g);
+  pushMessage(g, 'ESCAPE POD — SHIP INTACT, CARGO LOST', YELLOW, 6);
+}
+
 function damagePlayer(g, amount) {
   const p = g.player;
   if (p.fwdShield > 0) {
@@ -692,6 +772,8 @@ function damagePlayer(g, amount) {
   g.alert = 'red';
   g.events.push({ type: 'hit' });
   if (p.energy <= 0) {
+    // A fitted escape pod trades destruction for a rescue: same ship, no cargo.
+    if (p.equipment.EQ_ESCAPE_POD) { escapePod(g); return; }
     p.alive = false;
     g.explosions.push({ pos: p.pos.slice(), life: 1.2, maxLife: 1.2, size: p.radius * 4 });
     g.events.push({ type: 'boom' });
@@ -845,10 +927,18 @@ function steerToward(e, targetPos, dt, rate) {
   const d = norm(sub(targetPos, e.pos));
   const ax = cross(fwd, d);
   const axl = len(ax);
-  if (axl < 1e-5) return;
-  const angle = Math.atan2(axl, Math.max(-1, Math.min(1, dot(fwd, d))));
+  const facing = dot(fwd, d);
+  let axis;
+  if (axl > 1e-5) axis = [ax[0] / axl, ax[1] / axl, ax[2] / axl];
+  else if (facing < 0) {
+    // exactly astern: the cross product vanishes, so turn onto any axis at
+    // right angles to the nose (up, unless the nose points up or down)
+    const alt = cross(fwd, Math.abs(fwd[1]) > 0.9 ? [1, 0, 0] : [0, 1, 0]);
+    axis = scale(alt, 1 / len(alt));
+  } else return; // already pointing that way
+  const angle = Math.atan2(axl, Math.max(-1, Math.min(1, facing)));
   const step = Math.min(angle, rate * dt);
-  const q = quatAxisAngle(ax[0] / axl, ax[1] / axl, ax[2] / axl, step);
+  const q = quatAxisAngle(axis[0], axis[1], axis[2], step);
   e.quat = quatNormalize(quatMul(q, e.quat));
 }
 
@@ -962,10 +1052,17 @@ export function stepGame(g, input, dt) {
   const p = g.player;
 
   // --- flight ------------------------------------------------------------
+  // A DOCK request with EQ_DOCK_COMP fitted hands the ship to its autopilot:
+  // it turns onto the station and closes at a speed that is already under the
+  // 120 m/s docking limit by the time it gets there. The stick and the
+  // throttle are ignored while it flies.
+  const autoDocking = g.autoDock && !!g.station;
+  if (autoDocking) steerToward(p, g.station.pos, dt, p.pitchRate);
+
   const pitch = input.pitch || 0;
   const yaw = input.yaw || 0;
   const roll = input.roll || 0;
-  if (pitch || yaw || roll) {
+  if (!autoDocking && (pitch || yaw || roll)) {
     const q = quatMul(
       quatMul(
         quatAxisAngle(1, 0, 0, -pitch * p.pitchRate * dt),
@@ -978,9 +1075,18 @@ export function stepGame(g, input, dt) {
   g.dialPitch = pitch;
   g.dialRoll = roll;
 
-  if (input.throttleSet != null) p.throttle = input.throttleSet;
+  if (autoDocking) {
+    // throttle from the distance left: full approach speed far out, down to a
+    // crawl by the station's 703 m hull, so contact is always a soft dock
+    const sd = dist(g.station.pos, p.pos);
+    p.throttle = Math.min(0.6, Math.max(0, (sd - 350) * 0.18 / p.maxSpeed));
+  } else if (input.throttleSet != null) p.throttle = input.throttleSet;
   else if (input.throttle) p.throttle = Math.max(0, Math.min(1, p.throttle + input.throttle * dt));
-  const injector = input.injectors ? 2.5 : 1;
+  // shortcut: Oolite also burns fuel at 0.25 units/s while boosting; here the
+  // boost is only gated behind the EQ_FUEL_INJECTION purchase, and the
+  // docking computer flies without it.
+  const boosting = input.injectors && !autoDocking && g.hasEquipment('EQ_FUEL_INJECTION');
+  const injector = boosting ? 2.5 : 1;
   const targetSpeed = p.maxSpeed * p.throttle * injector;
   // shortcut: Oolite accelerates with `thrust`; here speed tracks the throttle
   // directly so touch controls feel immediate.
@@ -1003,7 +1109,8 @@ export function stepGame(g, input, dt) {
     p.aftShield = Math.min(p.maxShield, p.aftShield + 8 * dt);
     g.alert = 'green';
   }
-  const recharge = def(g, 'cobra3').energy_recharge_rate || 4;
+  let recharge = def(g, 'cobra3').energy_recharge_rate || 4;
+  if (g.hasEquipment('EQ_ENERGY_UNIT')) recharge *= ENERGY_RECHARGE_MULT;
   p.energy = Math.min(p.maxEnergy, p.energy + recharge * dt);
   g.weaponTemp = Math.max(0, g.weaponTemp - 45 * dt);
   if (g.weaponOffline > 0) {
@@ -1014,6 +1121,18 @@ export function stepGame(g, input, dt) {
     }
   }
   p.weaponTemp = g.weaponTemp;
+
+  // --- fuel scooping -------------------------------------------------------
+  // EQ_FUEL_SCOOPS: fly into the sun's corona and the scoops drink straight
+  // from it until the tank is full (MISSING-FEATURES.md #11 sun skimming).
+  const skimming = g.hasEquipment('EQ_FUEL_SCOOPS') && p.fuel < 70
+    && dist(p.pos, SUN_POS) <= SUN_CORONA;
+  if (skimming) {
+    if (!g.scooping) pushMessage(g, 'FUEL SCOOPING', GREEN, 3);
+    p.fuel = Math.min(70, p.fuel + SCOOP_RATE * dt);
+    if (p.fuel >= 70) pushMessage(g, 'FUEL TANK FULL', GREEN, 4);
+  }
+  g.scooping = skimming;
 
   // --- weapons ------------------------------------------------------------
   g.weaponCooldown -= dt;
@@ -1076,8 +1195,14 @@ export function stepGame(g, input, dt) {
   const st = g.station;
   if (st) {
     const sd = dist(st.pos, p.pos);
+    // DOCK with a docking computer fitted engages its autopilot; without one
+    // the old rule stands (under 1500 m and 250 m/s).
+    if (input.dockRequest && g.hasEquipment('EQ_DOCK_COMP')) {
+      g.autoDock = true;
+      pushMessage(g, 'DOCKING COMPUTER ENGAGED', BLUE, 4);
+    }
     if ((sd < 400 && p.speed < 120) || (input.dockRequest && sd < 1500 && p.speed < 250)) dock(g);
-    else if (sd < 3000 && p.speed >= 120) g.dockHint = 2;
+    else if (sd < 3000 && p.speed >= 120 && !g.autoDock) g.dockHint = 2;
     else g.dockHint = Math.max(0, g.dockHint - dt);
     if (g.dockHint > 0 && !g.messages.some((m) => m.text.startsWith('SLOW'))) {
       pushMessage(g, 'SLOW TO <120 m/s TO DOCK', BLUE, 3);

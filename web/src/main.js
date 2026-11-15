@@ -11,6 +11,7 @@ import {
   createGame, stepGame, launch, marketFor, buyGood, sellGood, cargoUsed,
   shipyardFor, tradeInValue, buyShip, shipName, zoomScanner,
   equipmentFor, buyEquipment, spawnThargoid, SYSTEMS, rankName, legalStatus,
+  SUN_POS, SUN_R,
 } from './game.js';
 import { hasSave, hasAnySlot, saveGame, loadGame, defaultStorage, slotInfo } from './save.js';
 import { openSlots, closeSlots } from './slots.js';
@@ -24,9 +25,8 @@ const hudCanvas = el('hud');
 
 const PLANET_POS = [0, 6000, 62000];
 const PLANET_R = 9000;
-// Sun behind and above the launch heading so ships ahead are lit, as in Elite.
-const SUN_POS = [-30000, 25000, -50000];
-const SUN_R = 9000;
+// The sun sits behind and above the launch heading so ships ahead are lit, as
+// in Elite. Its position and radius live in game.js — the fuel scoops skim it.
 
 let renderer, hud, audio, assets, game;
 let stars, sphereGpu, gpu = {}, meshTex = {};
@@ -249,10 +249,10 @@ function buildMarketScreen() {
     `Cargo hold:\n${cargoLines}`;
 
   const table = el('market');
-  // Equipment sits under the commodities in the same table: the port ships two
-  // items (ECM, extra missiles) at their real equipment.plist prices.
+  // Equipment sits under the commodities in the same table: nine items at
+  // their real equipment.plist prices (see EQUIPMENT_KEYS in game.js).
   const eq = equipmentFor(game).map((r) => {
-    const label = r.can ? 'BUY' : (r.key === 'EQ_MISSILE' ? 'FULL' : 'OWNED');
+    const label = r.can ? 'BUY' : 'OWNED';
     return `<tr>
         <td>${r.name}</td>
         <td>${r.price}</td>
