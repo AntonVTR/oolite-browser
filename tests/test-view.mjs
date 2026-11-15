@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const { buildView } = await import(join(root, 'web/src/render.js'));
+const { buildView, lineIndices } = await import(join(root, 'web/src/render.js'));
 const { quatAxisAngle, quatNormalize, quatRotate } = await import(join(root, 'web/src/math.js'));
 
 function apply(m, v) {
@@ -153,5 +153,13 @@ assert.ok(drawLog.some((c) => c[0] === 'fillText' && c[1] === 'AFT VIEW'),
 drawLog.length = 0;
 hud.draw({ ...fake('aft'), hudVisible: false });
 assert.ok(!drawLog.some((c) => c[0] === 'fillRect'), 'no frame without a HUD');
+
+// ---- wireframe display mode (#22) -------------------------------------------
+// The edge list turns each triangle of the soup into its three strokes.
+assert.deepStrictEqual([...lineIndices(3)], [0, 1, 1, 2, 2, 0], 'one triangle, three edges');
+assert.deepStrictEqual([...lineIndices(6)], [0, 1, 1, 2, 2, 0, 3, 4, 4, 5, 5, 3],
+  'two triangles keep their own vertices');
+assert.strictEqual(lineIndices(4), null, 'a group that is not a triangle soup has no edges');
+assert.strictEqual(lineIndices(65538), null, 'beyond uint16 the group keeps its fill');
 
 console.log('view: all checks passed');

@@ -679,6 +679,7 @@ async function main() {
     if (e.repeat) return; // one press, one action — holding C must not flicker the chart
     if (e.code === 'KeyJ') jumpRequested = true;
     if (e.code === 'KeyH') jdrive(game); // the ZX in-system J-drive (#20)
+    if (e.code === 'KeyN') renderer.wireframe = !renderer.wireframe; // #22
     if (e.code === 'KeyZ') zoomScanner(game, e.shiftKey ? -1 : 1); // Oolite z / Z
     if (e.code === 'KeyC') toggleChartUI(); // Oolite F is full throttle here
     if (e.code === 'Digit5') toggleStatusUI(); // Oolite's status-screen key
@@ -741,13 +742,13 @@ async function main() {
     if (query.has('zoom') && z >= 1 && z <= 5) game.scannerZoom = Math.round(z);
     // ?view=aft|port|starboard starts in another view (headless smoke, #14)
     if (query.has('view')) setView(game, query.get('view'));
+    // ?wire starts in wireframe display mode (headless smoke, #22)
+    if (query.has('wire')) renderer.wireframe = true;
     // ?thargoid puts the alien warship ahead of the nose (headless smoke test)
     if (query.has('thargoid')) spawnThargoid(game);
-    // ?jdrive presses the in-system J-drive once (headless smoke, #20): with
-    // the station right ahead the drive must refuse, warn and stay put
+    // ?jdrive presses the in-system J-drive once (headless smoke, #20)
     if (query.has('jdrive')) window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyH' }));
-    // ?dcomp fits the docking computer and presses DOCK (headless smoke, #21):
-    // the autopilot takes the ship and its music must start without errors
+    // ?dcomp fits the docking computer and presses DOCK (headless smoke, #21)
     if (query.has('dcomp')) {
       game.player.equipment.EQ_DOCK_COMP = true;
       window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Enter' }));

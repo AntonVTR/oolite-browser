@@ -106,6 +106,32 @@ void main() {
   gl_FragColor = vec4(uColor.rgb, uColor.a * edge * edge);
 }`;
 
+// Triangle soup → line-list indices for the wireframe mode (#22): each
+// triangle becomes its three edges. shortcut: a group over 65 535 verts
+// keeps its fill instead — WebGL1 has no uint32 indices.
+export function lineIndices(count) {
+  if (count % 3 || count > 65535) return null;
+  const idx = new Uint16Array(count * 2);
+  for (let v = 0; v < count; v += 3) {
+    const i = v * 2;
+    idx[i] = v; idx[i + 1] = v + 1;
+    idx[i + 2] = v + 1; idx[i + 3] = v + 2;
+    idx[i + 4] = v + 2; idx[i + 5] = v;
+  }
+  return idx;
+}
+
+// The edge index buffer a group needs for wireframe strokes, or null when
+// the group is too big for uint16 indices (it then keeps its fill).
+function makeEdges(gl, count) {
+  const idx = lineIndices(count);
+  if (!idx) return null;
+  const buf = gl.createBuffer();
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idx, gl.STATIC_DRAW);
+  return { buf, count: idx.length };
+}
+
 function compile(gl, type, src) {
   const sh = gl.createShader(type);
   gl.shaderSource(sh, src);
@@ -184,6 +210,7 @@ export class Renderer {
     this.pointsProg = program(gl, POINTS_VS, POINTS_FS);
     this.spriteProg = program(gl, SPRITE_VS, SPRITE_FS);
     this.beamProg = program(gl, BEAM_VS, BEAM_FS);
+    this.wireframe = false; // wireframe display mode (#22)
 
     this.proj = mat4();
     this.view = mat4();
@@ -255,7 +282,8 @@ export class Renderer {
       const ub = gl.createBuffer();
       gl.bindBuffer(gl.ARRAY_BUFFER, ub);
       gl.bufferData(gl.ARRAY_BUFFER, g.uvs, gl.STATIC_DRAW);
-      return { material: g.material, pos: pb, nor: nb, uv: ub, count: g.count };
+      return { material: g.material, pos: pb, nor: nb, uv: ub, count: g.count,
+        edges: makeEdges(gl, g.count) };
     });
     return { groups, materials: parsed.materials, bbox: parsed.bbox };
   }
@@ -271,7 +299,8 @@ export class Renderer {
       return b;
     };
     return {
-      groups: [{ material: 0, pos: mk(s.positions), nor: mk(s.normals), uv: mk(s.uvs), count: s.count }],
+      groups: [{ material: 0, pos: mk(s.positions), nor: mk(s.normals), uv: mk(s.uvs),
+        count: s.count, edges: makeEdges(gl, s.count) }],
       materials: ['sphere'],
       bbox: null,
     };
@@ -392,6 +421,26 @@ export class Renderer {
       gl.bindBuffer(gl.ARRAY_BUFFER, g.uv);
       gl.enableVertexAttribArray(p.a.aUV);
       gl.vertexAttribPointer(p.a.aUV, 2, gl.FLOAT, false, 0, 0);
+      if (this.wireframe) {
+        // Wireframe display mode (#22) with hidden-line removal: fill the
+        // faces black, pushed back by a polygon offset so the front edges
+        // win the depth test, then stroke those edges phosphor green.
+        gl.uniform1f(p.u.uUseTex, 0);
+        gl.uniform1f(p.u.uEmissive, 0);
+        gl.uniform4f(p.u.uTint, 0, 0, 0, 1);
+        gl.enable(gl.POLYGON_OFFSET_FILL);
+        gl.polygonOffset(1, 1);
+        gl.drawArrays(gl.TRIANGLES, 0, g.count);
+        gl.disable(gl.POLYGON_OFFSET_FILL);
+        if (g.edges) {
+          gl.uniform3f(p.u.uSunCol, 0, 0, 0);
+          gl.uniform3f(p.u.uAmbient, 1, 1, 1);
+          gl.uniform4f(p.u.uTint, 0.55, 1, 0.6, 1);
+          gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, g.edges.buf);
+          gl.drawElements(gl.LINES, g.edges.count, gl.UNSIGNED_SHORT, 0);
+        }
+        continue;
+      }
       gl.drawArrays(gl.TRIANGLES, 0, g.count);
     }
   }
