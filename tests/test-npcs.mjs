@@ -146,6 +146,29 @@ assert.ok(doomed.energy < doomed.maxEnergy, 'the alien shoots the shuttle');
 assert.ok(alienG.shots.some((s) => s.npc && !s.hostile), 'as an NPC-on-NPC shot');
 assert.ok(!alienG.shots.some((s) => s.hostile), 'the commander is too far off to matter');
 
+// ---- a gentler launch: the first hostile waits its turn --------------------
+// finishLaunch hands a fresh commander ten seconds of grace: the first
+// hostile arrives 2-4 km out, drifts without picking a foe, and holds fire.
+const gentleG = createGame(assets);
+gentleG.rand = () => 1;
+launch(gentleG);
+gentleG.spawnTimer = 1e9; // no fresh contacts mid-check: this is about the first one
+const first = gentleG.entities.find((e) => e.type === 'ship' && e.hostile);
+assert.ok(first, 'launch puts a hostile in the sky');
+const firstD = dist(first, gentleG.player);
+assert.ok(firstD >= 2000 && firstD <= 4000,
+  `it spawns 2-4 km out (${firstD.toFixed(0)} m)`);
+assert.ok(first.engageDelay > 0 && first.engageDelay <= 10,
+  `with about ten seconds before it engages (${first.engageDelay.toFixed(1)} s)`);
+assert.ok(first.fireCooldown > 0, 'and a short delay before its first shot');
+standStill(gentleG);
+for (let i = 0; i < 9 * 60; i++) stepGame(gentleG, noInput(), 1 / 60);
+assert.ok(first.engageDelay > 0, 'after nine seconds it is still waiting');
+assert.ok(first.fireCooldown > 0, 'and has not fired once (its cooldown never ran down)');
+assert.ok(!gentleG.shots.some((s) => s.hostile), 'and not one shot has reached the commander');
+for (let i = 0; i < 2 * 60; i++) stepGame(gentleG, noInput(), 1 / 60);
+assert.ok(first.engageDelay <= 0, 'after ten seconds the grace is spent');
+
 // ---- spawn caps: inhabited, not crowded ------------------------------------
 const sky = createGame(assets);
 sky.rand = () => 1;

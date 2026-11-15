@@ -94,8 +94,8 @@ const ahead = (e) => { const r = rel(e); return nose[0] * r[0] + nose[1] * r[1] 
 assert.ok(ahead(g.station) > 0, 'station ahead of the nose at launch');
 const fresh = spawnPirate(g);
 const freshDist = Math.hypot(rel(fresh)[0], rel(fresh)[1], rel(fresh)[2]);
-assert.ok(ahead(fresh) > 0 && freshDist >= 700 && freshDist <= 2000,
-  `pirate spawns in view (${freshDist.toFixed(0)} m ahead)`);
+assert.ok(ahead(fresh) > 0 && freshDist >= 2000 && freshDist <= 4000,
+  `pirate spawns in view, 2-4 km out (${freshDist.toFixed(0)} m ahead)`);
 g.entities = g.entities.filter((e) => e.type === 'station');
 
 const start = g.player.pos.slice();
