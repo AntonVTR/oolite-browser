@@ -14,7 +14,8 @@ Checked against the port on 2026-11-13 (`web/src`, `README.md`). File references
 are to this repo. Items 1–3 were closed on 2026-11-14 (branch `iter/status`) and
 item 4 the same day (branch `iter/market`); item 5 closed on 2026-11-15 (branch
 `iter/equipment`, which also closed the sun half of item 11); item 6 closed the
-same day (branch `iter/docking`); their sections
+same day (branch `iter/docking`); item 7 closed 2026-11-15 (branch
+`iter/missions`); their sections
 below keep the original description for the record.
 
 **Ranking:** P1 = core identity of the game, P2 = universe & travel depth,
@@ -158,6 +159,31 @@ Thargoid intelligence across several jumps, the ZX-version **supernova
 rescue**; rewards range from cash to gems to a **cloaking device**
 (Wikipedia). Port: none — mission scripts are explicitly skipped in
 `README.md` ("Not ported yet"), and no hand-rolled equivalents exist.
+
+**Done** (branch `iter/missions`): `web/src/missions.js` holds both Navy jobs
+as plain data in `MISSIONS` — no script engine, no `mission.*` host objects.
+State is three fields on `g.mission` (`active`, `jumps`, `done`) and every
+transition is one function game.js already had a moment for: `missionOnKill()`
+from `damageShip()`, `missionOnJump()` from `jump()`, `missionOnDock()` from
+`dock()`, each returning HUD text for `pushMessage()`. Mission 1 is the
+Constrictor hunt (briefing, target ship, and the original's 5 000 CR reward
+from `Resources/Scripts/oolite-constrictor-hunt-mission.js`): while it runs,
+`spawnPirate()` puts the stolen ship in the sky instead of the round-robin.
+Mission 2 opens only after it and carries Thargoid intelligence (briefing from
+`Resources/Config/missiontext.plist`): `g.mission.jumps` counts hyperspace
+jumps with a `CARRIED n/3` HUD line, and docking at the end pays 15 000 CR.
+The **briefing sits on the docked screen** (`#dock-mission`, between the status
+block and the tabs) with an ACCEPT MISSION button — the offer shows the full
+text and reward, an accepted mission shows its instruction and progress. Save
+data gained an optional `mission` field: pre-mission saves load with a clean
+slate and a malformed one refuses the whole save, like `crime` above.
+
+**Skipped here**: the ZX-version **supernova rescue** — it needs a sun that
+explodes on a timer, a doomed system and an evacuation choice, none of which
+fit the three-field mission state cheaply; and the original's non-cash
+rewards — the **cloaking device** (500 000 CR in `equipment.plist`, and its
+NPC-invisibility rules are still open under #5) and gems, so both missions
+**pay cash only**.
 
 ---
 
