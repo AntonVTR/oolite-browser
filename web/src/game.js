@@ -442,6 +442,13 @@ function damageRock(g, rock, amount) {
 // too. Distance is measured from the sun's centre.
 export const SUN_POS = [-30000, 25000, -50000];
 export const SUN_R = 9000;
+// The system's one planet (drawn by main.js): the body the altitude dial
+// measures against and the thing you can fly into (#17).
+export const PLANET_POS = [0, 6000, 62000];
+export const PLANET_R = 9000;
+// Oolite's dial top: 40 km above the surface reads full (PLAYER_DIAL_MAX_
+// ALTITUDE in PlayerEntity.h).
+const DIAL_MAX_ALTITUDE = 40000;
 const SUN_CORONA = SUN_R * 1.5; // scoop range from the centre, metres
 const SCOOP_RATE = 20;          // fuel units (0.1 ly) per second while skimming
 // Cargo pickup range for EQ_FUEL_SCOOPS: a canister this close ahead of the
@@ -480,7 +487,7 @@ export function createGame(assets) {
     compass: null,
     scannerEntities: () => [],
     playerRel: new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1]),
-    altitudeFraction: 0,
+    altitudeFraction: 1, // metres above the planet over 40 km, 0..1 (#17)
     dialSpeed: 0,
     dialRoll: 0,
     dialPitch: 0,
@@ -1691,6 +1698,23 @@ export function stepGame(g, input, dt) {
   const ey = quatRotate(p.quat, [0, 1, 0]);
   const ez = quatRotate(p.quat, [0, 0, 1]);
   g.playerRel.set([ex[0], ex[1], ex[2], ey[0], ey[1], ey[2], ez[0], ez[1], ez[2]]);
+
+  // --- altitude and the planet (#17) ----------------------------------------
+  // The dial shows metres above the surface over 40 km (Oolite's
+  // PLAYER_DIAL_MAX_ALTITUDE). Under the surface the ship bounces off like
+  // any other collision and pays hull for it — flying into the planet now
+  // hurts instead of doing nothing.
+  const alt = dist(p.pos, PLANET_POS) - PLANET_R;
+  g.altitudeFraction = Math.max(0, Math.min(1, alt / DIAL_MAX_ALTITUDE));
+  if (alt < 0 && g.hitCooldown <= 0) {
+    const away = norm(sub(p.pos, PLANET_POS));
+    p.pos = add(PLANET_POS, scale(away, PLANET_R + p.radius + 1));
+    p.speed *= 0.3;
+    pushMessage(g, 'PLANET IMPACT', RED, 4);
+    damagePlayer(g, 40);
+    g.hitCooldown = 1.5;
+    if (g.phase !== 'flight') return g;
+  }
 
   // --- shields / energy / temperature -------------------------------------
   g.shieldCooldown -= dt;

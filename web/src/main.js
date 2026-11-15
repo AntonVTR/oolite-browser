@@ -11,7 +11,8 @@ import {
   createGame, stepGame, launch, launchTrip, marketFor, buyGood, sellGood, cargoUsed,
   shipyardFor, tradeInValue, buyShip, shipName, zoomScanner, jump,
   equipmentFor, buyEquipment, spawnThargoid, systemsIn, rankName, legalStatus,
-  pushMessage, spawnStation, SUN_POS, SUN_R, setView, cycleView,
+  pushMessage, spawnStation, SUN_POS, SUN_R, PLANET_POS, PLANET_R,
+  setView, cycleView,
 } from './game.js';
 import { galaxySystems } from './galaxy.js';
 import { missionView, acceptMission } from './missions.js';
@@ -25,10 +26,9 @@ const el = (id) => document.getElementById(id);
 const glCanvas = el('gl');
 const hudCanvas = el('hud');
 
-const PLANET_POS = [0, 6000, 62000];
-const PLANET_R = 9000;
 // The sun sits behind and above the launch heading so ships ahead are lit, as
-// in Elite. Its position and radius live in game.js — the fuel scoops skim it.
+// in Elite. Its position and radius live in game.js — the fuel scoops skim it,
+// and the altitude dial measures against the planet that lives there too.
 
 let renderer, hud, audio, assets, game;
 let stars, sphereGpu, gpu = {}, meshTex = {};
