@@ -13,7 +13,8 @@ Sources studied:
 Checked against the port on 2026-11-13 (`web/src`, `README.md`). File references
 are to this repo. Items 1–3 were closed on 2026-11-14 (branch `iter/status`) and
 item 4 the same day (branch `iter/market`); item 5 closed on 2026-11-15 (branch
-`iter/equipment`, which also closed the sun half of item 11); their sections
+`iter/equipment`, which also closed the sun half of item 11); item 6 closed the
+same day (branch `iter/docking`); their sections
 below keep the original description for the record.
 
 **Ranking:** P1 = core identity of the game, P2 = universe & travel depth,
@@ -133,6 +134,23 @@ bought Docking Computer (#5) the same request is an autopilot from any range;
 launch teleports the ship clear (`launch()`). The tunnel, the rotation match
 and the 10-second launch trip of the original are still missing, so the
 skill moment of the original is gone.
+
+**Done** (branch `iter/docking`): the start screen carries the **EASY MODE**
+checkbox (off by default, remembered in `localStorage` as `oolite.easyDock`),
+and with it off docking is judged against the spinning Coriolis slot
+(`dockFrame()` / `lane()` in `web/src/game.js`): face into the slot, roll
+with the station and stay under 120 m/s to thread the sleeve — anything else
+costs 25 shield and a tonne of cargo per scrape, while the HUD coaches
+`SLOW TO <120 m/s TO DOCK` / `MATCH THE STATION ROTATION` /
+`LINE UP WITH THE DOCKING SLOT`. The old shortcut is exactly what the
+checkbox turns on. Without it, DOCK only answers with the Docking Computer
+(#5) fitted, and that autopilot now flies the slot itself — swing wide onto
+the side you came in on, sit on the axis a kilometre out, match the roll,
+pace the speed to the slot — instead of aiming at the station's centre.
+Launch is the original's 10-second ride out of the force-field tube
+(`launchTrip()` / `stepLaunch()`): a fixed path carried by the station's
+rotation that hands over framed the way the instant launch always framed
+you. Tests and smokes keep the instant `launch()`; `?trip=1` takes the ride.
 
 ### 7. Missions
 Original: Galactic Navy jobs — track down a stolen experimental ship, carry

@@ -22,6 +22,11 @@ gyro, keyboard/mouse and gamepad.
   dock → buy/sell commodities → trade your ship in at the shipyard → refuel →
   witchspace jump to the next system → repeat. Credits, cargo hold, bounty
   rewards, shields, laser heat, death.
+- **Real docking and launch**: dock the original's way — face into the slot,
+  roll with the spinning station and arrive under 120 m/s — or tick
+  **EASY MODE** on the start screen for the old assisted shortcut (the
+  preference is remembered in `localStorage`). LAUNCH rides the original's
+  10-second trip out of the force-field tube instead of teleporting.
 - **Combat rating and legal status**: kills advance you Harmless → Elite on
   the original's kill thresholds, crimes (firing on innocents in the station's
   protection zone, killing traders or police) make the Vipers hunt you as the
@@ -85,9 +90,19 @@ gyro, keyboard/mouse and gamepad.
 | Gyro steering | `G` | GYRO | — |
 | Fullscreen | `F11` (browser) | FULL | — |
 
-Docking: fly within 400 m of the station at under 120 m/s, or press DOCK under
-1500 m — with a **Docking Computer** fitted the same request is an autopilot
-that turns onto the station from any range and slows itself for the contact.
+Docking: the start screen's **EASY MODE** checkbox picks the rules (kept in
+`localStorage`). **On** — the old shortcut: fly within 400 m of the station at
+under 120 m/s, or press DOCK under 1500 m; with a **Docking Computer** fitted
+the same request is an autopilot that turns onto the station from any range
+and slows itself for the contact. **Off** (the default) — the original's
+skill: face into the slot, roll with the spinning station and arrive under
+120 m/s; the HUD coaches `SLOW TO <120 m/s TO DOCK`,
+`MATCH THE STATION ROTATION` and `LINE UP WITH THE DOCKING SLOT`, and a rough
+or too-fast approach costs 25 shield plus a tonne of cargo per scrape. In
+this mode DOCK only answers with the Docking Computer fitted, and its
+autopilot then flies the real approach itself. LAUNCH takes the 10-second
+tube ride in both modes (`?autostart` smokes keep the instant launch;
+`?trip=1` takes the ride, `?easy=1` forces easy mode).
 The station screen has two tabs: **Market** (the 17 commodities of
 `trade-goods.plist`, each with the price and stock the current system's
 economy gives it — food is cheap where it is grown, computers where they are
@@ -134,6 +149,11 @@ google-chrome --headless=new --enable-logging=stderr --virtual-time-budget=20000
   --user-data-dir=/tmp/oolite-slots-smoke --screenshot=/tmp/slots.png \
   'http://127.0.0.1:8099/?autostart=1&dock=1&slots=1' 2>&1 | grep CONSOLE
 # ?slots=save / ?slots=load open one menu and leave it up for a screenshot
+# easy mode and the 10 s launch ride must stay console-clean too:
+google-chrome --headless=new --virtual-time-budget=6000 --screenshot=/tmp/easy.png \
+  'http://127.0.0.1:8099/?autostart=1&easy=1'
+google-chrome --headless=new --virtual-time-budget=13000 --screenshot=/tmp/trip.png \
+  'http://127.0.0.1:8099/?autostart=1&trip=1'
 ```
 
 `tools/copy-assets.sh` copies the used subset of `upstream/Resources` into
