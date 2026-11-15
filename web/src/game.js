@@ -338,6 +338,7 @@ export function createGame(assets) {
     credits: 100,
     cargo: {},
     equipment: {}, // fitted gear: EQ_ECM, …
+    pylons: 0,    // extra missile racks bought beyond the hull's own
     shipKey: 'cobra3-player', // yard key of the starting hull, for trade-in
     alive: true,
   };

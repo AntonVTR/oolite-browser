@@ -55,6 +55,14 @@ function validate(data) {
   for (const f of PLAYER_FIELDS) if (!num(p[f])) return null;
   const player = { shipKey: p.shipKey, cargo: { ...p.cargo } };
   for (const f of PLAYER_FIELDS) player[f] = p[f];
+  // Extra missile pylons are optional so saves written before they existed
+  // still load; when present they must be a sane count.
+  let pylons = 0;
+  if (p.pylons !== undefined) {
+    if (!num(p.pylons) || p.pylons < 0) return null;
+    pylons = p.pylons;
+  }
+  player.pylons = pylons;
   // Equipment is optional so saves written before it existed still load.
   player.equipment = {};
   if (p.equipment && typeof p.equipment === 'object' && !Array.isArray(p.equipment)) {
@@ -66,7 +74,7 @@ function validate(data) {
 
 export function saveData(g) {
   const p = g.player;
-  const player = { shipKey: p.shipKey, cargo: { ...p.cargo } };
+  const player = { shipKey: p.shipKey, cargo: { ...p.cargo }, pylons: p.pylons || 0 };
   for (const f of PLAYER_FIELDS) player[f] = p[f];
   player.equipment = { ...p.equipment };
   return { v: SAVE_VERSION, phase: g.phase, systemIndex: g.systemIndex,
