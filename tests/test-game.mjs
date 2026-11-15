@@ -12,7 +12,7 @@ const { SHIP_DEFS, resolveTextureName } = await import(join(root, 'web/src/asset
 const { createGame, stepGame, launch, launchTrip, marketFor, buyGood, sellGood, cargoUsed, jump, SYSTEMS,
   spawnPirate, spawnTrader, spawnThargoid, shipyardFor, tradeInValue, buyShip, zoomScanner,
   launchMissile, activateECM, equipmentFor, buyEquipment, missileCap, rankName,
-  legalStatus, addCrime, spawnPolice, SUN_POS } =
+  legalStatus, addCrime, spawnPolice, SUN_POS, dock } =
   await import(join(root, 'web/src/game.js'));
 const { Hud } = await import(join(root, 'web/src/hud.js'));
 const { distanceLy } = await import(join(root, 'web/src/galaxy.js'));
@@ -800,5 +800,33 @@ assert.ok(Math.abs(local[0] + 1200) < 1 && Math.abs(local[1]) < 1 && Math.abs(lo
 const tripNose = quatRotate(stInv, quatRotate(trip.player.quat, [0, 0, 1]));
 assert.ok(tripNose[2] < -0.99 && Math.abs(tripNose[0]) < 0.01,
   'with the nose back along the path, station ahead of it');
+
+// ---- trumbles (#23) ---------------------------------------------------------
+// The C64's cargo-eating pet: one crawls aboard on a docked arrival with
+// cargo in the hold (1/8), and from then on every arrival costs it a tonne.
+const tr = createGame(assets);
+launch(tr);
+tr.entities = tr.entities.filter((e) => e.type === 'station');
+tr.spawnTimer = 1e9;
+assert.strictEqual(tr.trumbles, 0, 'a fresh commander has no trumble');
+assert.ok(buyGood(tr, 'food', 3), 'and a hold with food in it');
+tr.rand = () => 0.5; // 0.5 >= 1/8: the roll misses
+dock(tr);
+assert.strictEqual(tr.trumbles, 0, 'the 1/8 roll misses');
+tr.rand = () => 0; // 0 < 1/8: the pet boards
+dock(tr);
+assert.strictEqual(tr.trumbles, 1, 'the next dock boards one');
+assert.ok(tr.messages.some((m) => m.text === 'A TRUMBLE CRAWLS ABOARD'),
+  'and the HUD says so');
+dock(tr);
+assert.strictEqual(tr.trumbles, 1, 'a second trumble never joins the first');
+launch(tr); // back in the air with the pet aboard
+tr.rand = () => 1; // a clean jump roll (no witchspace intercept)
+const food0 = tr.player.cargo.food;
+assert.ok(jump(tr), 'the jump fires');
+assert.strictEqual(tr.player.cargo.food, food0 - 1, 'the trumble ate a tonne of food');
+assert.ok(tr.messages.some((m) => m.text.includes('TRUMBLE ATE 1 t OF FOOD')),
+  'and the HUD says what it ate');
+assert.strictEqual(tr.trumbles, 1, 'it is still aboard afterwards');
 
 console.log('game: all checks passed');

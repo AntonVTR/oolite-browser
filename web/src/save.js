@@ -66,6 +66,14 @@ function validate(data) {
     if (typeof data.name !== 'string' || !data.name.trim()) return null;
     name = data.name.trim().slice(0, 24);
   }
+  // The trumble count is optional so saves written before it existed still
+  // load; when present it must be a sane count, or the whole save is refused
+  // (same rule as crime above).
+  let trumbles = 0;
+  if (data.trumbles !== undefined) {
+    if (!num(data.trumbles) || data.trumbles < 0) return null;
+    trumbles = data.trumbles;
+  }
   const p = data.player;
   if (!p || typeof p !== 'object') return null;
   if (typeof p.shipKey !== 'string' || !p.shipKey) return null;
@@ -120,7 +128,7 @@ function validate(data) {
   }
   if (weapons) player.weapons = weapons;
   return { v: SAVE_VERSION, phase: data.phase, systemIndex: data.systemIndex,
-    galaxy, kills: data.kills, crime, name, mission, player };
+    galaxy, kills: data.kills, crime, name, trumbles, mission, player };
 }
 
 export function saveData(g) {
@@ -132,6 +140,7 @@ export function saveData(g) {
   return { v: SAVE_VERSION, phase: g.phase, systemIndex: g.systemIndex,
     galaxy: g.galaxy || 1,
     kills: g.kills, crime: g.crime, name: g.commanderName || 'JAMESON',
+    trumbles: g.trumbles || 0,
     mission: { active: g.mission.active, jumps: g.mission.jumps, done: [...g.mission.done] },
     player };
 }
@@ -162,6 +171,7 @@ export function applySave(g, data) {
   g.kills = d.kills;
   g.crime = d.crime;
   g.commanderName = d.name; // old saves come back as JAMESON (#19)
+  g.trumbles = d.trumbles;  // and without the C64's pet (#23)
   g.mission = d.mission;
   Object.assign(g.player, d.player);
   // a load primes the forward mount and re-reads the crosshair/HUD line (#16)

@@ -14,7 +14,7 @@ import { systemsIn, rankName, legalStatus } from './game.js';
 // The fields, straight from live game state.
 export function statusRows(g) {
   const p = g.player;
-  return [
+  const rows = [
     ['Commander', g.commanderName || 'JAMESON'],
     ['Present system', g.witchspace ? 'WITCHSPACE (no station)' : systemsIn(g)[g.systemIndex].name],
     ['Fuel', `${(p.fuel / 10).toFixed(1)} ly`],
@@ -22,6 +22,9 @@ export function statusRows(g) {
     ['Legal status', legalStatus(g.crime)],
     ['Rating', rankName(g.kills)],
   ];
+  // the C64's pet only has a line of its own when one is aboard (#23)
+  if (g.trumbles) rows.push(['Trumbles', String(g.trumbles)]);
+  return rows;
 }
 
 // ---- screen ----------------------------------------------------------------

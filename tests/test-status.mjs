@@ -46,6 +46,10 @@ const changed = statusRows(g);
 assert.strictEqual(field(changed, 'Fuel'), '4.2 ly', 'fuel tracks the tank');
 assert.strictEqual(field(changed, 'Cash'), '1234.5 CR', 'cash tracks the wallet');
 assert.strictEqual(field(changed, 'Commander'), 'KIRA NORGATE', 'the name follows the commander (#19)');
+assert.ok(!rows.some(([k]) => k === 'Trumbles'), 'no trumble row without a pet aboard (#23)');
+g.trumbles = 1;
+assert.strictEqual(field(statusRows(g), 'Trumbles'), '1', 'an aboard trumble has its own row');
+g.trumbles = 0;
 
 addCrime(g, 1);
 assert.strictEqual(field(statusRows(g), 'Legal status'), 'Offender', 'one offence is an Offender');
