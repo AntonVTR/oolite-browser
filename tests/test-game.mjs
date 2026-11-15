@@ -400,6 +400,7 @@ g.crime = 40; // an offender flies home: docking is what clears the record
 g.entities = g.entities.filter((e) => e.type === 'station');
 g.player.pos = [0, 0, 300];
 g.player.speed = 20;
+g.easyDock = true; // this is the assisted shortcut the checkbox turns on (#6)
 stepGame(g, noInput(), 1 / 60);
 assert.strictEqual(g.phase, 'docked', 'slow near the station docks the ship');
 assert.strictEqual(g.crime, 0, 'docking forgives every crime');
@@ -717,5 +718,58 @@ assert.strictEqual(racks.player.pylons, cap0 + 1, 'and the rack is counted');
 assert.strictEqual(missileCap(racks), cap0 + 1, 'which raises the pylon count');
 assert.ok(buyEquipment(racks, 'EQ_MISSILE'), 'and it can be done again');
 assert.strictEqual(missileCap(racks), cap0 + 2, 'each rack is kept');
+
+// ---- real docking: match the station, line up, thread the slot (#6) --------
+// Every game above runs with the start-screen checkbox off, so these are the
+// default rules. A fresh quiet game has the station at the origin with an
+// identity orientation, so the slot mouth sits at (0,0,500) and its axis runs
+// out along +Z: a clean approach flies -Z, rolled with the station.
+
+// On the axis, nose in, rolled with the station, under the limit — it
+// threads the sleeve and docks.
+const clean = quiet();
+assert.strictEqual(clean.easyDock, false, 'real docking is the default');
+clean.player.pos = [0, 0, 900]; // 400 m out from the slot mouth
+clean.player.quat = [0, 1, 0, 0]; // nose pointing into the slot (-Z)
+clean.player.speed = 100;
+clean.player.throttle = 100 / clean.player.maxSpeed;
+run(clean, noInput(), 6);
+assert.strictEqual(clean.phase, 'docked', 'a slow aligned approach docks');
+
+// Rolled 90° onto the slot: even a slow approach is refused until the ship
+// matches the station's rotation — and the scrape costs hull and cargo.
+const rolled = quiet();
+rolled.player.pos = [0, 0, 900];
+rolled.player.quat = [Math.SQRT1_2, Math.SQRT1_2, 0, 0]; // nose in, rolled 90°
+rolled.player.speed = 100;
+rolled.player.throttle = 100 / rolled.player.maxSpeed;
+rolled.player.cargo = { food: 3 };
+const rolledShield = rolled.player.fwdShield;
+run(rolled, noInput(), 6);
+assert.notStrictEqual(rolled.phase, 'docked', 'a rolled approach never docks');
+assert.ok(rolled.player.fwdShield < rolledShield, 'the scrape costs shield');
+assert.ok(cargoUsed(rolled) < 3, 'and it costs cargo');
+
+// Hot on the lane: the corridor spits the ship out and takes hull and cargo.
+const hot = quiet();
+hot.player.pos = [0, 0, 900];
+hot.player.quat = [0, 1, 0, 0];
+hot.player.speed = 400;
+hot.player.throttle = 1;
+hot.player.cargo = { food: 3 };
+const hotShield = hot.player.fwdShield;
+run(hot, noInput(), 6);
+assert.notStrictEqual(hot.phase, 'docked', 'a hot approach never docks');
+assert.ok(hot.player.fwdShield < hotShield, 'and it costs shield');
+assert.ok(cargoUsed(hot) < 3, 'and it costs cargo');
+
+// Easy mode (the checkbox on) keeps the shortcut: success is the market dock
+// above; a DOCK request over 250 m/s is refused, contact or not.
+const easyFast = quiet();
+easyFast.easyDock = true;
+easyFast.player.pos = [0, 0, 1000]; // inside the 1500 m DOCK range
+easyFast.player.speed = 300;
+stepGame(easyFast, { dockRequest: true }, 1 / 60);
+assert.strictEqual(easyFast.phase, 'flight', 'a hot DOCK request is refused');
 
 console.log('game: all checks passed');
