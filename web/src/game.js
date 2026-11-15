@@ -597,6 +597,7 @@ export function dock(g) {
   g.phase = 'docked';
   g.hudVisible = false;
   g.alert = 'green';
+  g.autoDock = false; // whatever was flying the ship has let go
   // Simplest rule for clearing a record: docking forgives every crime.
   if (g.crime > 0) {
     g.crime = 0;
@@ -925,10 +926,18 @@ function steerToward(e, targetPos, dt, rate) {
   const d = norm(sub(targetPos, e.pos));
   const ax = cross(fwd, d);
   const axl = len(ax);
-  if (axl < 1e-5) return;
-  const angle = Math.atan2(axl, Math.max(-1, Math.min(1, dot(fwd, d))));
+  const facing = dot(fwd, d);
+  let axis;
+  if (axl > 1e-5) axis = [ax[0] / axl, ax[1] / axl, ax[2] / axl];
+  else if (facing < 0) {
+    // exactly astern: the cross product vanishes, so turn onto any axis at
+    // right angles to the nose (up, unless the nose points up or down)
+    const alt = cross(fwd, Math.abs(fwd[1]) > 0.9 ? [1, 0, 0] : [0, 1, 0]);
+    axis = scale(alt, 1 / len(alt));
+  } else return; // already pointing that way
+  const angle = Math.atan2(axl, Math.max(-1, Math.min(1, facing)));
   const step = Math.min(angle, rate * dt);
-  const q = quatAxisAngle(ax[0] / axl, ax[1] / axl, ax[2] / axl, step);
+  const q = quatAxisAngle(axis[0], axis[1], axis[2], step);
   e.quat = quatNormalize(quatMul(q, e.quat));
 }
 
@@ -1042,10 +1051,17 @@ export function stepGame(g, input, dt) {
   const p = g.player;
 
   // --- flight ------------------------------------------------------------
+  // A DOCK request with EQ_DOCK_COMP fitted hands the ship to its autopilot:
+  // it turns onto the station and closes at a speed that is already under the
+  // 120 m/s docking limit by the time it gets there. The stick and the
+  // throttle are ignored while it flies.
+  const autoDocking = g.autoDock && !!g.station;
+  if (autoDocking) steerToward(p, g.station.pos, dt, p.pitchRate);
+
   const pitch = input.pitch || 0;
   const yaw = input.yaw || 0;
   const roll = input.roll || 0;
-  if (pitch || yaw || roll) {
+  if (!autoDocking && (pitch || yaw || roll)) {
     const q = quatMul(
       quatMul(
         quatAxisAngle(1, 0, 0, -pitch * p.pitchRate * dt),
@@ -1058,9 +1074,18 @@ export function stepGame(g, input, dt) {
   g.dialPitch = pitch;
   g.dialRoll = roll;
 
-  if (input.throttleSet != null) p.throttle = input.throttleSet;
+  if (autoDocking) {
+    // throttle from the distance left: full approach speed far out, down to a
+    // crawl by the station's 703 m hull, so contact is always a soft dock
+    const sd = dist(g.station.pos, p.pos);
+    p.throttle = Math.min(0.6, Math.max(0, (sd - 350) * 0.18 / p.maxSpeed));
+  } else if (input.throttleSet != null) p.throttle = input.throttleSet;
   else if (input.throttle) p.throttle = Math.max(0, Math.min(1, p.throttle + input.throttle * dt));
-  const injector = input.injectors ? 2.5 : 1;
+  // shortcut: Oolite also burns fuel at 0.25 units/s while boosting; here the
+  // boost is only gated behind the EQ_FUEL_INJECTION purchase, and the
+  // docking computer flies without it.
+  const boosting = input.injectors && !autoDocking && g.hasEquipment('EQ_FUEL_INJECTION');
+  const injector = boosting ? 2.5 : 1;
   const targetSpeed = p.maxSpeed * p.throttle * injector;
   // shortcut: Oolite accelerates with `thrust`; here speed tracks the throttle
   // directly so touch controls feel immediate.
@@ -1169,8 +1194,14 @@ export function stepGame(g, input, dt) {
   const st = g.station;
   if (st) {
     const sd = dist(st.pos, p.pos);
+    // DOCK with a docking computer fitted engages its autopilot; without one
+    // the old rule stands (under 1500 m and 250 m/s).
+    if (input.dockRequest && g.hasEquipment('EQ_DOCK_COMP')) {
+      g.autoDock = true;
+      pushMessage(g, 'DOCKING COMPUTER ENGAGED', BLUE, 4);
+    }
     if ((sd < 400 && p.speed < 120) || (input.dockRequest && sd < 1500 && p.speed < 250)) dock(g);
-    else if (sd < 3000 && p.speed >= 120) g.dockHint = 2;
+    else if (sd < 3000 && p.speed >= 120 && !g.autoDock) g.dockHint = 2;
     else g.dockHint = Math.max(0, g.dockHint - dt);
     if (g.dockHint > 0 && !g.messages.some((m) => m.text.startsWith('SLOW'))) {
       pushMessage(g, 'SLOW TO <120 m/s TO DOCK', BLUE, 3);
