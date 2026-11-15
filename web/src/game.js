@@ -242,6 +242,14 @@ export function spawnPolice(g) {
   return s;
 }
 
+// The sun: main.js draws it as a sphere at exactly this spot, and the fuel
+// scoops only work inside its corona, so the simulation carries the position
+// too. Distance is measured from the sun's centre.
+export const SUN_POS = [-30000, 25000, -50000];
+export const SUN_R = 9000;
+const SUN_CORONA = SUN_R * 1.5; // scoop range from the centre, metres
+const SCOOP_RATE = 20;          // fuel units (0.1 ly) per second while skimming
+
 // ---------------------------------------------------------------------------
 export function createGame(assets) {
   const g = {
@@ -290,6 +298,8 @@ export function createGame(assets) {
 
     player: null,
     station: null,
+    autoDock: false, // a fitted docking computer is flying the ship
+    scooping: false, // the fuel scoops are drinking at the sun
     spawnTimer: 0,
     weaponCooldown: 0,
     weaponTemp: 0,
@@ -1065,6 +1075,18 @@ export function stepGame(g, input, dt) {
     }
   }
   p.weaponTemp = g.weaponTemp;
+
+  // --- fuel scooping -------------------------------------------------------
+  // EQ_FUEL_SCOOPS: fly into the sun's corona and the scoops drink straight
+  // from it until the tank is full (MISSING-FEATURES.md #11 sun skimming).
+  const skimming = g.hasEquipment('EQ_FUEL_SCOOPS') && p.fuel < 70
+    && dist(p.pos, SUN_POS) <= SUN_CORONA;
+  if (skimming) {
+    if (!g.scooping) pushMessage(g, 'FUEL SCOOPING', GREEN, 3);
+    p.fuel = Math.min(70, p.fuel + SCOOP_RATE * dt);
+    if (p.fuel >= 70) pushMessage(g, 'FUEL TANK FULL', GREEN, 4);
+  }
+  g.scooping = skimming;
 
   // --- weapons ------------------------------------------------------------
   g.weaponCooldown -= dt;
