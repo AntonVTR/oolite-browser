@@ -198,7 +198,9 @@ assert.strictEqual(g.hasEquipment('EQ_ECM'), true, 'fitted after the purchase');
 assert.strictEqual(g.player.credits, 94000, 'the ECM costs 6000 CR');
 assert.strictEqual(buyEquipment(g, 'EQ_ECM'), false, 'an owned ECM is not sold twice');
 
-// extra missiles go into free pylons only, at the real 300 CR
+// extra missiles go into free pylons only, at the real 300 CR; past the
+// hull's own pylons each missile brings its own rack — that is how the port
+// sells more pylons (shortcut: Oolite hulls have a fixed pylon count).
 const cap = missileCap(g);
 assert.strictEqual(cap, 4, "the cobra's real max_missiles");
 g.player.missiles = cap - 1;
@@ -206,7 +208,11 @@ const crBefore = g.player.credits;
 assert.ok(buyEquipment(g, 'EQ_MISSILE'), 'a missile fits a free pylon');
 assert.strictEqual(g.player.missiles, cap, 'pylon filled');
 assert.strictEqual(g.player.credits, crBefore - 300, 'a missile costs 300 CR');
-assert.strictEqual(buyEquipment(g, 'EQ_MISSILE'), false, 'full pylons refuse another');
+assert.ok(buyEquipment(g, 'EQ_MISSILE'), 'past the cap the missile brings a pylon');
+assert.strictEqual(g.player.missiles, cap + 1, 'so one more missile is carried');
+assert.strictEqual(g.player.pylons, cap + 1, 'and the rack is counted');
+assert.strictEqual(missileCap(g), cap + 1, 'which raises the pylon count');
+assert.strictEqual(g.player.credits, crBefore - 600, 'at the same 300 CR');
 
 // an incoming missile dies in the ECM sweep, which then goes on cooldown
 g.player.energy = g.player.maxEnergy;

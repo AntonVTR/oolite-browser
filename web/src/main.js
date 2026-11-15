@@ -249,10 +249,10 @@ function buildMarketScreen() {
     `Cargo hold:\n${cargoLines}`;
 
   const table = el('market');
-  // Equipment sits under the commodities in the same table: the port ships two
-  // items (ECM, extra missiles) at their real equipment.plist prices.
+  // Equipment sits under the commodities in the same table: nine items at
+  // their real equipment.plist prices (see EQUIPMENT_KEYS in game.js).
   const eq = equipmentFor(game).map((r) => {
-    const label = r.can ? 'BUY' : (r.key === 'EQ_MISSILE' ? 'FULL' : 'OWNED');
+    const label = r.can ? 'BUY' : 'OWNED';
     return `<tr>
         <td>${r.name}</td>
         <td>${r.price}</td>

@@ -317,9 +317,9 @@ export function createGame(assets) {
     yawRate: (pd.max_flight_pitch || 1) / 4,
     energy: pd.max_energy || 256,
     maxEnergy: pd.max_energy || 256,
-    maxShield: 150,
-    fwdShield: 150,
-    aftShield: 150,
+    maxShield: BASE_MAX_SHIELD,
+    fwdShield: BASE_MAX_SHIELD,
+    aftShield: BASE_MAX_SHIELD,
     fuel: pd.fuel || 70,
     maxCargo: pd.max_cargo || 20,
     missiles: pd.max_missiles || 0,
@@ -483,12 +483,13 @@ export function buyShip(g, key) {
   p.pitchRate = d.max_flight_pitch || 1;
   p.rollRate = d.max_flight_roll || 2;
   p.yawRate = (d.max_flight_pitch || 1) / 4;
-  p.maxEnergy = d.max_energy || 256;
-  p.energy = p.maxEnergy;
-  p.maxCargo = d.max_cargo || 20;
   p.missiles = d.max_missiles || 0;
   p.radius = radiusOf(g, key);
   p.fuel = d.fuel || 70;
+  // hull stats first, then the fitted gear that adds to them (the cargo bay
+  // and the shield booster follow the commander to the new ship)
+  applyEquipmentStats(g);
+  p.energy = p.maxEnergy;
   g.yardStock = g.yardStock.filter((k) => k !== key);
   pushMessage(g, `${shipName(g, key).toUpperCase()} BOUGHT — TRADE-IN ${tradeIn} CR`, GREEN, 6);
   g.events.push({ type: 'buy' });
@@ -497,12 +498,48 @@ export function buyShip(g, key) {
 
 // ---- equipment -------------------------------------------------------------
 // Sold at the station the way the shipyard sells hulls, at the real
-// equipment.plist prices. The port models two items of Oolite's 41.
-// shortcut: no tech-level or ship-compatibility gating on what is listed.
-const EQUIPMENT_KEYS = ['EQ_ECM', 'EQ_MISSILE'];
+// equipment.plist prices, listed by the plist's own techlevel.
+// shortcut: no ship-compatibility gating — everything on the list fits.
+const EQUIPMENT_KEYS = [
+  'EQ_CARGO_BAY', 'EQ_MISSILE', 'EQ_ECM', 'EQ_FUEL_SCOOPS', 'EQ_ESCAPE_POD',
+  'EQ_ENERGY_UNIT', 'EQ_DOCK_COMP', 'EQ_FUEL_INJECTION', 'EQ_SHIELD_BOOSTER',
+];
+
+// Fitted gear that changes the ship's numbers. Oolite applies the three
+// stat items in addEquipmentItem / oolite-equipment-control.js from the same
+// equipment.plist script_info values; here they are re-derived from the hull
+// and the equipment, so a hull swap at the shipyard keeps them.
+const EXTRA_CARGO = 15;           // shipdata extra_cargo default, tonnes
+const SHIELD_BOOST = 128;         // equipment.plist oolite_shield_increase
+const ENERGY_RECHARGE_MULT = 1.8; // equipment.plist oolite_energy_recharge_multiplier
+const BASE_MAX_SHIELD = 150;
+
+export function applyEquipmentStats(g) {
+  const p = g.player;
+  const d = def(g, p.shipKey);
+  const eq = p.equipment;
+  p.maxCargo = (d.max_cargo || 20) + (eq.EQ_CARGO_BAY ? EXTRA_CARGO : 0);
+  p.maxEnergy = d.max_energy || 256;
+  p.maxShield = BASE_MAX_SHIELD + (eq.EQ_SHIELD_BOOSTER ? SHIELD_BOOST : 0);
+  p.energy = Math.min(p.energy, p.maxEnergy);
+  p.fwdShield = Math.min(p.fwdShield, p.maxShield);
+  p.aftShield = Math.min(p.aftShield, p.maxShield);
+}
+
+// The row's hint column: what the item does before it is bought.
+const EQUIPMENT_NOTES = {
+  EQ_CARGO_BAY: `+${EXTRA_CARGO} t hold`,
+  EQ_ENERGY_UNIT: `recharge ×${ENERGY_RECHARGE_MULT}`,
+  EQ_SHIELD_BOOSTER: `+${SHIELD_BOOST} shields`,
+  EQ_DOCK_COMP: 'auto-dock on DOCK',
+  EQ_FUEL_SCOOPS: 'skim the sun',
+  EQ_ESCAPE_POD: 'survives destruction',
+  EQ_FUEL_INJECTION: 'boost ×2.5',
+};
 
 export function missileCap(g) {
-  return def(g, g.player.shipKey).max_missiles || 0;
+  // the hull's built-in pylons plus every extra rack bought at the station
+  return Math.max(def(g, g.player.shipKey).max_missiles || 0, g.player.pylons || 0);
 }
 
 export function equipmentFor(g) {
@@ -511,12 +548,15 @@ export function equipmentFor(g) {
   return EQUIPMENT_KEYS.map((key) => {
     const e = stock.find((row) => row[3] === key);
     if (!e) return null;
+    const row = { key, name: e[2], price: e[1] };
     if (key === 'EQ_MISSILE') {
-      const cap = missileCap(g);
-      return { key, name: e[2], price: e[1], note: `pylons ${p.missiles}/${cap}`, can: p.missiles < cap };
+      // A missile fills a free pylon; past the hull's own pylons it brings its
+      // own rack, so the row never runs out of something to sell.
+      // shortcut: Oolite hulls have fixed pylons and sell no extra racks.
+      return { ...row, note: `pylons ${p.missiles}/${missileCap(g)}`, can: true };
     }
     const owned = !!p.equipment[key];
-    return { key, name: e[2], price: e[1], note: owned ? 'fitted' : '', can: !owned };
+    return { ...row, note: owned ? 'fitted' : EQUIPMENT_NOTES[key] || '', can: !owned };
   }).filter(Boolean);
 }
 
@@ -526,10 +566,20 @@ export function buyEquipment(g, key) {
   if (!row || !row.can) return false;
   if (p.credits < row.price) { pushMessage(g, 'INSUFFICIENT CREDITS', RED); return false; }
   p.credits -= row.price;
-  if (key === 'EQ_MISSILE') p.missiles++;
-  else p.equipment[key] = true;
+  let racked = true;
+  if (key === 'EQ_MISSILE') {
+    const cap = missileCap(g);
+    p.missiles++;
+    racked = p.missiles <= cap;
+    if (!racked) p.pylons = Math.max(p.pylons || 0, p.missiles);
+  } else {
+    p.equipment[key] = true;
+    applyEquipmentStats(g);
+  }
   g.events.push({ type: 'buy' });
-  pushMessage(g, key === 'EQ_MISSILE' ? 'MISSILE FITTED' : `${row.name.toUpperCase()} FITTED`, GREEN);
+  pushMessage(g, key === 'EQ_MISSILE'
+    ? (racked ? 'MISSILE FITTED' : 'MISSILE + PYLON FITTED')
+    : `${row.name.toUpperCase()} FITTED`, GREEN);
   return true;
 }
 
@@ -1003,7 +1053,8 @@ export function stepGame(g, input, dt) {
     p.aftShield = Math.min(p.maxShield, p.aftShield + 8 * dt);
     g.alert = 'green';
   }
-  const recharge = def(g, 'cobra3').energy_recharge_rate || 4;
+  let recharge = def(g, 'cobra3').energy_recharge_rate || 4;
+  if (g.hasEquipment('EQ_ENERGY_UNIT')) recharge *= ENERGY_RECHARGE_MULT;
   p.energy = Math.min(p.maxEnergy, p.energy + recharge * dt);
   g.weaponTemp = Math.max(0, g.weaponTemp - 45 * dt);
   if (g.weaponOffline > 0) {
