@@ -120,7 +120,7 @@ priming UI — the port fires one hardcoded beam — and the mining laser also
 needs #12), cloak (needs invisibility rules for NPC targeting plus a readout
 so the player can tell it is on) and passenger berth (needs passengers and
 missions, #7). None of those is a cheap mechanic, so iteration 3 skipped
-them explicitly; the galactic drive stays #8.
+them explicitly; the galactic drive closed with #8 on `iter/travel`.
 
 ### 6. Real docking and launch
 User note: make it a setup **easy-mode checkbox on the start screen** — off by
@@ -194,6 +194,21 @@ Original: an expensive `EQ_GAL_DRIVE` lets you jump between 8 galaxies × 256
 systems; some systems are only reachable that way (both sources). Port:
 `makeGalaxy(n)` in `web/src/galaxy.js` already generates every galaxy, but
 `web/src/game.js` hardcodes `SYSTEMS = makeGalaxy(1)` and no G+H jump exists.
+
+**Done** (branch `iter/travel`): `EQ_GAL_DRIVE` joined `EQUIPMENT_KEYS` at its
+real `equipment.plist` price (50 000 CR, tech level 10) and `galacticJump()`
+in `web/src/game.js` follows the original's `Ghy` routine (elite.bbcelite.com):
+the drive is **one-shot** (consumed on use, as `Ghy` zeroes `GHYP`), the jump
+costs **no fuel** (the original only checks fuel for system jumps), galaxy 8
+wraps back to 1, you arrive at the system nearest the galaxy's centre
+coordinates **(96, 96)**, and the jump clears the criminal record (`Ghy` sets
+FIST to 0). The galaxy lives in `g.galaxy`; every screen reads its systems
+through `systemsIn(g)` / `galaxySystems()` instead of the old galaxy-1
+`SYSTEMS`, the market cache is keyed by (galaxy, system), and the save gained
+an optional `galaxy` field — old saves load in galaxy 1, a save with a ninth
+galaxy is refused. The chart's **GALACTIC JUMP** button takes a **second
+press** to cross (`CONFIRM — GALAXY n`), so a 50 000 CR one-shot is never
+spent by one stray tap; the armed state dies with the chart.
 
 ### 9. Long-range chart and per-system data screen
 Original: `I` galaxy map with cursor browsing, `P` data on any system

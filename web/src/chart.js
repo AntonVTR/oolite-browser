@@ -11,7 +11,7 @@
 // this change's scope, so nothing here touches the document until it is
 // opened.
 
-import { SYSTEMS, jump } from './game.js';
+import { systemsIn, jump, galacticJump } from './game.js';
 import { distanceLy } from './galaxy.js';
 
 // descriptions.plist "government" and economy name tables.
@@ -29,10 +29,11 @@ export const CHART_RANGE_LY = 7;
 // Every system inside jump range except the current one, nearest first, with
 // the real data and whether the tank currently buys the hop.
 export function chartRows(g) {
-  const from = SYSTEMS[g.systemIndex];
+  const systems = systemsIn(g);
+  const from = systems[g.systemIndex];
   const reach = Math.min(CHART_RANGE_LY, g.player.fuel / 10);
   const rows = [];
-  for (const sys of SYSTEMS) {
+  for (const sys of systems) {
     if (sys.index === from.index) continue;
     const distance = distanceLy(from, sys);
     if (distance > CHART_RANGE_LY) continue;
@@ -97,10 +98,23 @@ function ensureOverlay() {
       '<div class="sub" id="chart-sub"></div>' +
       '<div id="chart-map"></div>' +
       '<table id="chart-list" class="market"></table>' +
-      '<div class="row"><button id="btnChartClose" class="big">CLOSE</button></div>' +
+      '<div class="row">' +
+        '<button id="btnChartGal" class="big">GALACTIC JUMP</button>' +
+        '<button id="btnChartClose" class="big">CLOSE</button>' +
+      '</div>' +
     '</div>';
   document.body.appendChild(overlay);
   overlay.querySelector('#btnChartClose').addEventListener('click', () => closeChart());
+  // The galaxy jump (#8): the first press arms, the second crosses — a
+  // 50 000 CR one-shot drive must never be spent by one stray tap.
+  overlay.querySelector('#btnChartGal').addEventListener('click', () => {
+    if (galacticJump(gameRef)) {
+      if (afterAction) afterAction();
+      closeChart(); // the arrival message belongs on the HUD, not the chart
+      return;
+    }
+    render(gameRef); // armed (or refused): the label carries the state
+  });
   // one delegated click each for the list buttons and the map's in-range dots
   overlay.querySelector('#chart-list').addEventListener('click', (e) => {
     const btn = e.target.closest('button[data-idx]');
@@ -128,7 +142,8 @@ function doJump(idx) {
 }
 
 function render(g) {
-  const from = SYSTEMS[g.systemIndex];
+  const systems = systemsIn(g);
+  const from = systems[g.systemIndex];
   const rows = chartRows(g);
   const fuel = g.player.fuel;
   el('chart-sub').textContent =
@@ -137,7 +152,7 @@ function render(g) {
   // Backdrop, fuel-range ring (same ellipse maths as drawStarChart: 5 chart
   // units per ly, x over 64 units, y over 128) and the stars in view.
   let dots = '';
-  for (const sys of SYSTEMS) {
+  for (const sys of systems) {
     const dx = sys.x - from.x;
     const dy = sys.y - from.y;
     if (Math.abs(dx) > 42 || Math.abs(dy) > 74) continue; // Oolite's clip border at zoom 1
@@ -161,6 +176,15 @@ function render(g) {
       <td>${r.economy}</td>
       <td><button data-idx="${r.index}" ${r.reachable ? '' : 'disabled'}>JUMP ${r.cost}</button></td>
     </tr>`).join('');
+
+  // The galaxy-jump button carries its own state: without a fitted drive it
+  // says so and stays dead, an armed press offers the confirm (#8).
+  const gal = el('btnChartGal');
+  const fitted = !!g.player.equipment.EQ_GAL_DRIVE;
+  gal.disabled = !fitted;
+  gal.textContent = !fitted ? 'GALACTIC — NO DRIVE'
+    : g.galConfirm ? `CONFIRM — GALAXY ${(g.galaxy & 7) + 1}`
+    : 'GALACTIC JUMP';
 }
 
 // Toggle from the C key or the CHART button. onAction is main.js's playEvents,
@@ -184,6 +208,7 @@ export function toggleChart(g, onAction) {
 export function closeChart() {
   if (!open) return;
   open = false;
+  if (gameRef) gameRef.galConfirm = false; // an armed galactic press dies here
   if (overlay) overlay.classList.add('hidden');
   // back to the flight controls, but never over a menu (docked / dead)
   if (gameRef && gameRef.phase === 'flight') setTouchVisible(true);

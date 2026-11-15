@@ -70,10 +70,10 @@ gyro, keyboard/mouse and gamepad.
   priority AI), which this port does not have. The Galactic Navy chain itself
   is hand-rolled as plain data instead (see below, #7); the rest of Oolite's
   script content is untouched.
-- 32 of the 41 equipment types — the shop sells nine of them (cargo bay,
+- 31 of the 41 equipment types — the shop sells ten of them (cargo bay,
   extra energy unit, shield boosters, docking computer, fuel scoops, escape
-  pod, fuel injectors, E.C.M., missiles), while lasers, cloak, passenger
-  berth, galactic drive and the rest are not modelled — plus ship AI scripts
+  pod, fuel injectors, E.C.M., missiles, galactic hyperdrive), while lasers,
+  cloak, passenger berth and the rest are not modelled — plus ship AI scripts
   (`.js`), mines and missile-vs-missile interception.
 - Cockpit view, real sun/planet textures (both are shaded spheres), wormholes.
 
@@ -114,17 +114,26 @@ The station screen has two tabs: **Market** (the 17 commodities of
 `trade-goods.plist`, each with the price and stock the current system's
 economy gives it — food is cheap where it is grown, computers where they are
 built — and contraband tagged **ILLEGAL**; selling it is a crime. Below them
-an **Equipment** section with nine items at their real `equipment.plist`
+an **Equipment** section with ten items at their real `equipment.plist`
 prices: Large Cargo Bay (+15 t hold), Extra Energy Unit (recharge ×1.8),
 Shield Boosters (+128 shields), E.C.M. System, missiles (300 CR each — past
 the hull's pylons every missile brings its own rack), Fuel Scoops (skim the
 sun's corona to refill the tank), Escape Pod (destruction becomes a rescue:
 same ship, cargo lost), Witchdrive Fuel Injectors (BOOST does nothing until
-they are bought) and the Docking Computer. The other tab is **Shipyard**
+they are bought), the Docking Computer and the **Galactic Hyperdrive**
+(50 000 CR — one jump to the next galaxy, fired from the chart, see below). The other tab is **Shipyard**
 (eleven hulls with
 real `shipyard.plist` prices; your current ship is traded in at ~71% of its
 price, cargo is sold off automatically, and a bought hull leaves the stock for
 good). Refuel from the same screen.
+
+**Chart** (`C` / CHART): the short-range list of everything inside the 7 ly
+ring with its real data. With the **Galactic Hyperdrive** fitted (50 000 CR)
+the chart also carries a **GALACTIC JUMP** button — press it **twice**
+(first arms it, `CONFIRM — GALAXY n`) to cross into the next galaxy: one-shot
+drive, no fuel cost, galaxy 8 wraps to 1, you land on the system nearest the
+galaxy's centre (96, 96) and your legal record is cleared, exactly as the
+original's galactic jump works.
 
 **Save / load**: docking still writes the auto-save that **CONTINUE** on the
 title screen loads. On top of that, the station screen has a **SAVE** button

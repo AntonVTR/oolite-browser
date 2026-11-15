@@ -10,9 +10,10 @@ import { loadAssets, SHIP_DEFS, resolveTextureName } from './assets.js';
 import {
   createGame, stepGame, launch, launchTrip, marketFor, buyGood, sellGood, cargoUsed,
   shipyardFor, tradeInValue, buyShip, shipName, zoomScanner,
-  equipmentFor, buyEquipment, spawnThargoid, SYSTEMS, rankName, legalStatus,
+  equipmentFor, buyEquipment, spawnThargoid, systemsIn, rankName, legalStatus,
   pushMessage, SUN_POS, SUN_R,
 } from './game.js';
+import { galaxySystems } from './galaxy.js';
 import { missionView, acceptMission } from './missions.js';
 import { hasSave, hasAnySlot, saveGame, loadGame, defaultStorage, slotInfo } from './save.js';
 import { openSlots, closeSlots } from './slots.js';
@@ -263,7 +264,7 @@ function buildMissionScreen() {
 const GREEN = [0, 1, 0];
 
 function buildMarketScreen() {
-  const sys = SYSTEMS[game.systemIndex];
+  const sys = systemsIn(game)[game.systemIndex];
   el('dock-title').textContent = `${sys.name} — STATION`;
   const p = game.player;
   const used = cargoUsed(game);
@@ -285,7 +286,7 @@ function buildMarketScreen() {
   buildMissionScreen(); // the Navy briefing sits between status and tabs (#7)
 
   const table = el('market');
-  // Equipment sits under the commodities in the same table: nine items at
+  // Equipment sits under the commodities in the same table: ten items at
   // their real equipment.plist prices (see EQUIPMENT_KEYS in game.js).
   const eq = equipmentFor(game).map((r) => {
     const label = r.can ? 'BUY' : 'OWNED';
@@ -406,7 +407,7 @@ function syncPhase() {
     audio.stopEngine();
     el('dead-stats').textContent =
       `Credits ${game.player.credits.toFixed(1)} CR · Kills ${game.kills} (${rankName(game.kills)}) · ` +
-      `Reached ${SYSTEMS[game.systemIndex].name}`;
+      `Reached ${systemsIn(game)[game.systemIndex].name}`;
     el('dead').classList.remove('hidden');
   } else if (game.phase === 'flight') {
     hideOverlays();
@@ -686,7 +687,7 @@ async function main() {
       tap(); tap(); // arm the overwrite confirmation, then confirm it
       const info = slotInfo(0, storage);
       if (!info) { console.error('slots smoke: slot 1 was not written'); return; }
-      console.log(`slots smoke: saved ${SYSTEMS[info.systemIndex].name}`);
+      console.log(`slots smoke: saved ${galaxySystems(info.galaxy)[info.systemIndex].name}`);
       location.replace(`${location.pathname}?slots=2`);
     }, 25);
   } else if (slotsStep === '2') {
@@ -699,7 +700,7 @@ async function main() {
       else {
         btn.click();
         if (game.phase !== 'docked') console.error('slots smoke: load did not restore the save');
-        else console.log(`slots smoke: loaded ${SYSTEMS[game.systemIndex].name}`);
+        else console.log(`slots smoke: loaded ${systemsIn(game)[game.systemIndex].name}`);
       }
     }
   } else if (slotsStep === 'save' || slotsStep === 'load') {

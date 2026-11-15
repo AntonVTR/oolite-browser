@@ -10,13 +10,13 @@
 // and nothing touches the document until it is opened. statusRows() is pure
 // and runs in node (tests/test-status.mjs).
 
-import { SYSTEMS, rankName, legalStatus } from './game.js';
+import { systemsIn, rankName, legalStatus } from './game.js';
 
 // The five fields, straight from live game state.
 export function statusRows(g) {
   const p = g.player;
   return [
-    ['Present system', SYSTEMS[g.systemIndex].name],
+    ['Present system', systemsIn(g)[g.systemIndex].name],
     ['Fuel', `${(p.fuel / 10).toFixed(1)} ly`],
     ['Cash', `${p.credits.toFixed(1)} CR`],
     ['Legal status', legalStatus(g.crime)],
