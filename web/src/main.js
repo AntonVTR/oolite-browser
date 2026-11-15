@@ -9,7 +9,7 @@ import { setupTouchControls, clearTouchEdges, syncThrottleKnob } from './touch.j
 import { loadAssets, SHIP_DEFS, resolveTextureName } from './assets.js';
 import {
   createGame, stepGame, launch, launchTrip, marketFor, buyGood, sellGood, cargoUsed,
-  shipyardFor, tradeInValue, buyShip, shipName, zoomScanner,
+  shipyardFor, tradeInValue, buyShip, shipName, zoomScanner, jump,
   equipmentFor, buyEquipment, spawnThargoid, systemsIn, rankName, legalStatus,
   pushMessage, SUN_POS, SUN_R,
 } from './game.js';
@@ -672,6 +672,12 @@ async function main() {
     }
     // ?status opens the in-flight status screen (headless smoke test)
     if (query.has('status')) toggleStatusUI();
+    // ?witchspace forces the mis-jump (#10): the smoke checks the stranded
+    // state — no station, three Thargoids — for console errors
+    if (query.has('witchspace')) {
+      game.rand = () => 0; // the interception roll always succeeds
+      jump(game);
+    }
   }
 
   // ?slots=1|2 — headless smoke for the slot menus (README "Development"):

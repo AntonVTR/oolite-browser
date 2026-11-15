@@ -57,6 +57,13 @@ gyro, keyboard/mouse and gamepad.
 - **Thargoid warship** on its real mesh and texture: hostile, fast, it never
   breaks off and shoots missiles often. The Constrictor and the Adder join the
   pirate and trader rosters — 14 ship types in the sky now.
+- **Witchspace interception**: 0.78% of jumps mis-jump — the original's own
+  odds — and strand you in witchspace with the jump's fuel already spent: no
+  station anywhere (DOCK answers `NO STATION TO DOCK AT`, the status screen
+  reads `WITCHSPACE (no station)`) and three Thargoids on you. Jump out if
+  the tank still buys a hop; dry, each JUMP press gets a luck roll (25%,
+  doubled by the Witchdrive Fuel Injectors), and the escape pod is fatal in
+  witchspace, as in the original.
 - **Missions**: the Galactic Navy chain — hunt down the stolen Constrictor,
   then carry Thargoid intelligence across three jumps. The briefing is on the
   docked screen with an ACCEPT button, progress shows in the HUD messages
@@ -159,7 +166,7 @@ node tests/test-touch.mjs     # double-tap zoom guard
 node tests/test-save.mjs      # auto-save round trip, bad saves rejected, manual slots
 node tests/test-missions.mjs  # Navy missions: offer order, accept, jump progress, reward, save
 node tests/test-chart.mjs     # short/long chart views, system data screen, fuel ring, jump range
-node tests/test-travel.mjs    # galactic hyperspace: two-press crossing, wrap, arrival point
+node tests/test-travel.mjs    # galactic hyperspace and witchspace: crossing, stranding, escape
 python3 -m http.server 8099 --directory web   # local server
 # headless smoke test (console errors + screenshots):
 google-chrome --headless=new --virtual-time-budget=6000 --screenshot=/tmp/shot.png \
@@ -187,6 +194,10 @@ google-chrome --headless=new --enable-logging=stderr --virtual-time-budget=6000 
   --window-size=760,1400 --user-data-dir=/tmp/oolite-long \
   --screenshot=/tmp/long.png \
   'http://127.0.0.1:8099/?autostart=1&chart=long' 2>&1 | grep CONSOLE
+# the forced mis-jump: stranded in witchspace with three Thargoids, console-clean:
+google-chrome --headless=new --enable-logging=stderr --virtual-time-budget=8000 \
+  --user-data-dir=/tmp/oolite-witch --screenshot=/tmp/witch.png \
+  'http://127.0.0.1:8099/?autostart=1&witchspace=1' 2>&1 | grep CONSOLE
 ```
 
 `tools/copy-assets.sh` copies the used subset of `upstream/Resources` into

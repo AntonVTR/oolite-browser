@@ -24,6 +24,7 @@ const assets = {
 };
 
 const g = createGame(assets);
+g.rand = () => 1; // pin the jump rolls: no mis-jump may fire by chance (#10)
 launch(g);
 g.entities = g.entities.filter((e) => e.type === 'station');
 g.spawnTimer = 1e9;

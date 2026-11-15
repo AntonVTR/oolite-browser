@@ -16,7 +16,7 @@ import { systemsIn, rankName, legalStatus } from './game.js';
 export function statusRows(g) {
   const p = g.player;
   return [
-    ['Present system', systemsIn(g)[g.systemIndex].name],
+    ['Present system', g.witchspace ? 'WITCHSPACE (no station)' : systemsIn(g)[g.systemIndex].name],
     ['Fuel', `${(p.fuel / 10).toFixed(1)} ly`],
     ['Cash', `${p.credits.toFixed(1)} CR`],
     ['Legal status', legalStatus(g.crime)],

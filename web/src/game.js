@@ -274,6 +274,8 @@ export function createGame(assets) {
     systemIndex: 7, // Lave — the classic starting system
     galaxy: 1,     // which of the 8 galaxies the commander is in (#8)
     galConfirm: false, // a GALACTIC press is armed, waiting for the second (#8)
+    witchspace: false, // a mis-jump stranded the ship: no station, thargoids (#10)
+    rand: Math.random, // seam for the jump rolls — tests pin it (#10)
     events: [],
     messages: [],
     explosions: [],
@@ -822,6 +824,16 @@ function stepLaunch(g, dt) {
 
 // selected: a system index from the short-range chart; without one the jump
 // goes to the nearest system in range, as before.
+//
+// Witchspace interception (#10): the original's mis-jump chance is 0.78% per
+// jump — MJP is called from TT18 instead of arriving (elite.bbcelite.com) —
+// and it strands you with the fuel already spent and three Thargoids aboard.
+// shortcut: the probability has no published source beyond that 0.78%, so it
+// is taken literally; both rolls go through g.rand, a seam the tests pin.
+const WITCHSPACE_CHANCE = 1 / 128;         // 0.78%, the original's odds
+const WITCHSPACE_LUCK = 0.25;              // a dry escape roll (shortcut)
+const WITCHSPACE_LUCK_INJECTORS = 0.5;     // … doubled with the injectors
+
 export function jump(g, selected) {
   if (g.phase !== 'flight') return false;
   const systems = systemsIn(g);
@@ -855,6 +867,9 @@ export function jump(g, selected) {
       if (ly <= reach) { target = idx; cost = Math.max(1, Math.round(ly * 10)); break; }
     }
     if (target < 0) {
+      // Stranded with a tank that buys nothing: the jump itself is the way
+      // out of witchspace — one luck roll per press (see witchspaceLuck).
+      if (g.witchspace) return witchspaceLuck(g, systems);
       pushMessage(g, g.player.fuel < 70 ? 'INSUFFICIENT FUEL FOR JUMP' : 'NO SYSTEM IN RANGE', RED);
       return false;
     }
@@ -863,17 +878,70 @@ export function jump(g, selected) {
   g.systemIndex = target;
   g.galConfirm = false; // a jump cancels any armed galactic press
   g.events.push({ type: 'jump' });
-  arriveClean(g);
-  pushMessage(g, `WITCHSPACE — ARRIVED AT ${systems[g.systemIndex].name}`, GREEN, 6);
+  if (!g.witchspace && g.rand() < WITCHSPACE_CHANCE) {
+    enterWitchspace(g); // intercepted: no arrival, no station, three Thargoids
+  } else {
+    arriveClean(g);
+    pushMessage(g, `WITCHSPACE — ARRIVED AT ${systems[g.systemIndex].name}`, GREEN, 6);
+  }
   // a carried Navy mission counts this jump (#7)
   const missionMsg = missionOnJump(g);
   if (missionMsg) pushMessage(g, missionMsg, GREEN, 6);
   return true;
 }
 
+// The original's MJP: a mis-jump strands you in witchspace — no sun, no
+// planet, no station, three Thargoids (MJP loops GTHG until it has spawned
+// three) and the jump's fuel already spent (Wikipedia). shortcut: the port
+// keeps the destination system's index as your position, so the chart has
+// coordinates to jump from — the original's position is "in-between systems".
+function enterWitchspace(g) {
+  g.witchspace = true;
+  g.autoDock = false; // nothing is flying the ship any more
+  g.entities = [];
+  g.shots = [];
+  g.explosions = [];
+  g.missiles = [];
+  g.target = null;
+  g.station = null;
+  for (let i = 0; i < 3; i++) spawnThargoid(g);
+  pushMessage(g, 'MIS-JUMP — WITCHSPACE', RED, 6);
+  pushMessage(g, 'NO STATION — JUMP TO ESCAPE', YELLOW, 6);
+}
+
+// In witchspace with a tank that buys nothing: one luck roll per JUMP press.
+// The injectors tap the witch-drive's own fuel, so they double the chance.
+// shortcut: the original strands you until you reload (and its escape pod is
+// fatal here) — the port keeps the fatal pod but always leaves a way out, so
+// an auto-save-only browser session cannot dead-end.
+function witchspaceLuck(g, systems) {
+  const chance = g.player.equipment.EQ_FUEL_INJECTION
+    ? WITCHSPACE_LUCK_INJECTORS : WITCHSPACE_LUCK;
+  if (g.rand() >= chance) {
+    pushMessage(g, 'STILL LOST IN WITCHSPACE', RED, 5);
+    return false;
+  }
+  // tumble out into the nearest system, whatever the range cost would be
+  const from = systems[g.systemIndex];
+  let target = -1;
+  let best = Infinity;
+  for (const s of systems) {
+    if (s.index === from.index) continue;
+    const d = distanceLy(from, s);
+    if (d < best) { best = d; target = s.index; }
+  }
+  g.systemIndex = target;
+  g.events.push({ type: 'jump' });
+  arriveClean(g);
+  pushMessage(g, `LUCKY BOUNCE OUT OF WITCHSPACE — ${systems[target].name}`, GREEN, 6);
+  return true;
+}
+
 // The far side of any jump: a fresh sky with the station framed ahead of the
-// nose. jump() and the galactic jump both land this way.
+// nose. jump() and the galactic jump both land this way; it is also the way
+// out of witchspace (#10).
 function arriveClean(g) {
+  g.witchspace = false;
   g.entities = [];
   g.shots = [];
   g.explosions = [];
@@ -1024,7 +1092,9 @@ function damagePlayer(g, amount) {
   g.events.push({ type: 'hit' });
   if (p.energy <= 0) {
     // A fitted escape pod trades destruction for a rescue: same ship, no cargo.
-    if (p.equipment.EQ_ESCAPE_POD) { escapePod(g); return; }
+    // In witchspace there is nothing to rescue you to, so the pod is fatal
+    // there — exactly what the original does (#10).
+    if (p.equipment.EQ_ESCAPE_POD && !g.witchspace) { escapePod(g); return; }
     p.alive = false;
     g.explosions.push({ pos: p.pos.slice(), life: 1.2, maxLife: 1.2, size: p.radius * 4 });
     g.events.push({ type: 'boom' });
@@ -1455,7 +1525,13 @@ export function stepGame(g, input, dt) {
   g.spawnTimer -= dt;
   const hostiles = g.entities.filter((e) => e.hostile).length;
   const police = g.entities.filter((e) => e.role === 'police').length;
-  if (g.spawnTimer <= 0 && hostiles < 2) {
+  if (g.witchspace) {
+    // stranded: only the Thargoids are out here, and they keep coming (#10)
+    if (g.spawnTimer <= 0 && hostiles < 3) {
+      g.spawnTimer = 12;
+      spawnThargoid(g);
+    }
+  } else if (g.spawnTimer <= 0 && hostiles < 2) {
     g.spawnTimer = 12;
     // a wanted commander gets the police on their tail instead of a free spawn
     if (g.crime > 0 && police === 0) spawnPolice(g);
@@ -1560,6 +1636,9 @@ export function stepGame(g, input, dt) {
         }
       }
     }
+  } else if (input.dockRequest) {
+    // no station answers a DOCK request — you are in witchspace (#10)
+    pushMessage(g, 'NO STATION TO DOCK AT', YELLOW, 3);
   }
 
   // --- targeting / compass ------------------------------------------------

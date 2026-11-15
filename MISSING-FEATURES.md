@@ -16,7 +16,9 @@ item 4 the same day (branch `iter/market`); item 5 closed on 2026-11-15 (branch
 `iter/equipment`, which also closed the sun half of item 11); item 6 closed the
 same day (branch `iter/docking`); item 7 closed 2026-11-15 (branch
 `iter/missions`); their sections
-below keep the original description for the record.
+below keep the original description for the record. Items 8–10 closed
+2026-11-15 (branch `iter/travel`), likewise with their original descriptions
+kept below.
 
 **Ranking:** P1 = core identity of the game, P2 = universe & travel depth,
 P3 = flight/combat depth, P4 = fidelity polish.
@@ -236,6 +238,24 @@ galaxy-wide view for the headless smoke.
 Original: a Thargoid can cut the jump short and dump you in witchspace to
 fight invasion ships — with the jump's fuel already spent (Wikipedia). Port:
 `jump()` in `web/src/game.js` always arrives cleanly.
+
+**Done** (branch `iter/travel`): `jump()` rolls the original's mis-jump
+chance — **0.78%** per jump, the exact odds the BBC Elite source documents
+for calling MJP from TT18 instead of arriving — and strands you in
+witchspace: the jump's fuel is already spent, **no station exists anywhere**
+(a DOCK request answers `NO STATION TO DOCK AT`, the status screen reads
+`WITCHSPACE (no station)`), and **three Thargoids** are on you, as MJP
+spawns. Escape follows the original: a jump the tank can still afford takes
+you out (only possible when the intercepted jump cost less than your tank
+held); dry, the JUMP action gets one luck roll per press — 25%, doubled to
+50% with the Witchdrive Fuel Injectors fitted (they tap the witch-drive's
+own fuel). **shortcut**: the original strands you until you reload and its
+escape pod is fatal in witchspace — the port keeps the fatal pod (a stranded
+commander dies honestly instead of docking a station that is not there) but
+adds the luck roll so an auto-save-only browser session can always get out.
+The stranded state is not saved — reloading a save is the original's own way
+out — and both rolls run through `g.rand`, a seam the tests pin
+(`tests/test-travel.mjs`).
 
 ### 11. Fuel scooping: sun skimming and cargo collection
 Original: `EQ_FUEL_SCOOPS` lets you skim a star's corona for fuel and pick up
