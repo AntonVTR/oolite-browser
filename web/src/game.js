@@ -5,7 +5,7 @@
 // Units are Oolite's: metres, seconds, degrees-ish rates in rad/s.
 
 import {
-  quatMul, quatAxisAngle, quatNormalize, quatRotate,
+  quatMul, quatAxisAngle, quatNormalize, quatRotate, quatFromBasis,
   norm, sub, add, scale, dot, cross, len, dist,
 } from './math.js';
 import { makeGalaxy, distanceLy } from './galaxy.js';
@@ -306,6 +306,13 @@ export function createGame(assets) {
     weaponOffline: 0,
     shieldCooldown: 0,
     dockHint: 0,
+    easyDock: false,  // start-screen checkbox: assisted docking (off = real, #6)
+    launchSeq: 0,     // seconds left of the launch trip (0 = not riding one)
+    launchT: 0,       // position along the launch path, 0..1
+    launchLen: 0,     // length of the launch path, metres
+    dockPhase: 0,     // docking computer's approach phase (real mode, #6)
+    dockSwing: null,  // frozen side vector for the autopilot's swing wide
+    hitCooldown: 0,   // seconds until the station may hurt you again
     ecmTime: 0,      // seconds left of the ECM effect
     ecmPulse: 0,     // countdown to the next jamming pulse
     ecmPulseNo: 0,   // pulses already fired (4 make one sweep)
@@ -594,6 +601,78 @@ export function buyEquipment(g, key) {
   return true;
 }
 
+// --- real docking (MISSING-FEATURES #6) -----------------------------------
+// The Coriolis slot: a sleeve on the station's +Z face (shipdata places the
+// dock subentity at 500.2561 m), carried round by the station's spin. With
+// easy mode off, docking is judged against this frame — approach along its
+// axis, rolled with the station, under the 120 m/s limit.
+const DOCK_OFFSET = [0, 0, 500.2561];
+const SLOT_HALF = 130;   // half-width of the Coriolis slot, metres
+const DOCK_SPEED = 120;  // m/s, the docking limit from the original
+
+function dockFrame(g) {
+  const st = g.station;
+  return {
+    pos: add(st.pos, quatRotate(st.quat, DOCK_OFFSET)),
+    normal: quatRotate(st.quat, [0, 0, 1]), // out of the slot
+    up: quatRotate(st.quat, [0, 1, 0]),     // rolls with the station
+  };
+}
+
+// Where the ship sits relative to the slot: axial > 0 is outside the mouth,
+// lat is how far off the slot's axis, facing/roll are the alignments a clean
+// approach needs (1 = nose straight in / rolled with the station).
+function lane(g) {
+  const f = dockFrame(g);
+  const rel = sub(g.player.pos, f.pos);
+  const axial = dot(rel, f.normal);
+  return {
+    ...f,
+    axial,
+    lat: len(sub(rel, scale(f.normal, axial))),
+    facing: dot(quatRotate(g.player.quat, [0, 0, 1]), scale(f.normal, -1)),
+    roll: dot(quatRotate(g.player.quat, [0, 1, 0]), f.up),
+  };
+}
+
+const linedUp = (l) => l.lat < SLOT_HALF && l.facing > 0.9 && l.roll > 0.85;
+
+// A rough approach shreds the hold as well as the hull: one tonne of a
+// random good goes out through the breach.
+function loseCargo(g) {
+  const keys = Object.keys(g.player.cargo);
+  if (!keys.length) return;
+  const k = keys[Math.floor(Math.random() * keys.length)];
+  g.player.cargo[k] -= 1;
+  if (g.player.cargo[k] <= 0) delete g.player.cargo[k];
+  pushMessage(g, 'CARGO LOST IN THE COLLISION', RED, 5);
+}
+
+// Roll the ship onto a reference up (the station's) about its own nose —
+// the docking computer's answer to "match the station rotation".
+function matchRoll(e, upTarget, dt, rate) {
+  const fwd = quatRotate(e.quat, [0, 0, 1]);
+  const up = quatRotate(e.quat, [0, 1, 0]);
+  const have = sub(up, scale(fwd, dot(up, fwd)));
+  const want = sub(upTarget, scale(fwd, dot(upTarget, fwd)));
+  const hl = len(have);
+  const wl = len(want);
+  if (hl < 1e-4 || wl < 1e-4) return; // nose pole: roll means nothing there
+  const hn = scale(have, 1 / hl);
+  const wn = scale(want, 1 / wl);
+  const axis = cross(hn, wn);
+  const axl = len(axis);
+  let ang;
+  if (axl < 1e-5) {
+    if (dot(hn, wn) > 0) return; // already rolled in
+    ang = Math.PI;               // exactly inverted: roll the long way round
+  } else {
+    ang = Math.atan2(axl, dot(hn, wn));
+  }
+  const a = axl < 1e-5 ? fwd : scale(axis, 1 / axl);
+  e.quat = quatNormalize(quatMul(quatAxisAngle(a[0], a[1], a[2], Math.min(ang, rate * dt)), e.quat));
+}
+
 export function dock(g) {
   g.phase = 'docked';
   g.hudVisible = false;
@@ -608,6 +687,59 @@ export function dock(g) {
   pushMessage(g, `DOCKED AT ${SYSTEMS[g.systemIndex].name}`, GREEN, 6);
 }
 
+// The launch trip (MISSING-FEATURES #6): ten seconds riding out through the
+// station's force-field sleeve on a fixed path instead of teleporting. The
+// path lives in the station's frame — it turns with the slot it leaves — and
+// ends framed the way the old launch framed you: station ahead of the nose,
+// offset far enough aside that the flight path clears the hull.
+const LAUNCH_TIME = 10; // seconds from the tube to open space
+const LAUNCH_PATH = [
+  [0, 0, 300],      // inside the station, at the slot
+  [0, 0, 1100],     // straight out along the tube
+  [-1200, 0, 3300], // swing wide so the path clears the hull
+  [-1200, 0, 2400], // framed: station ahead-left of the nose, 1200 m of clearance
+];
+
+// Cubic Bezier on the path's control points, and its derivative.
+function bez(P, t) {
+  const u = 1 - t;
+  return add(
+    add(scale(P[0], u * u * u), scale(P[1], 3 * u * u * t)),
+    add(scale(P[2], 3 * u * t * t), scale(P[3], t * t * t)),
+  );
+}
+function bezDeriv(P, t) {
+  const u = 1 - t;
+  return add(
+    add(scale(sub(P[1], P[0]), 3 * u * u), scale(sub(P[2], P[1]), 6 * u * t)),
+    scale(sub(P[3], P[2]), 3 * t * t),
+  );
+}
+function curveLength(P, samples) {
+  let total = 0;
+  let prev = bez(P, 0);
+  for (let i = 1; i <= samples; i++) {
+    const cur = bez(P, i / samples);
+    total += dist(prev, cur);
+    prev = cur;
+  }
+  return total;
+}
+
+// Hand over to ordinary flight, with the framing values the old launch used.
+function finishLaunch(g) {
+  g.launchSeq = 0;
+  g.player.speed = 150;
+  g.player.throttle = 0.45;
+  pushMessage(g, 'LAUNCHED — GOOD LUCK, COMMANDER', GREEN, 6);
+  if (!g.entities.some((e) => e.type === 'ship' && e.hostile)) spawnPirate(g);
+  // Entities survive docking, so an unguarded spawn would stack one more
+  // viper on every dock/launch cycle — same guard as the pirate above.
+  if (!g.entities.some((e) => e.role === 'police')) spawnPolice(g);
+}
+
+// Instant launch: teleport onto the launch framing and fly on. Tests, the
+// smokes and ?autostart use it; the UI buttons take the ten-second ride.
 export function launch(g) {
   const st = g.station;
   // Start off to one side so the station drifts past ahead of the canopy.
@@ -615,15 +747,57 @@ export function launch(g) {
   // be seen; the lateral offset also means the flight path clears it by ~500 m.
   g.player.pos = [st.pos[0] + 1200, st.pos[1], st.pos[2] - 2966];
   g.player.quat = [0, 0, 0, 1];
-  g.player.speed = 150;
-  g.player.throttle = 0.45;
   g.phase = 'flight';
   g.hudVisible = true;
-  pushMessage(g, 'LAUNCHED — GOOD LUCK, COMMANDER', GREEN, 6);
-  if (!g.entities.some((e) => e.type === 'ship' && e.hostile)) spawnPirate(g);
-  // Entities survive docking, so an unguarded spawn would stack one more
-  // viper on every dock/launch cycle — same guard as the pirate above.
-  if (!g.entities.some((e) => e.role === 'police')) spawnPolice(g);
+  finishLaunch(g);
+}
+
+// The watched launch: stepGame rides g.launchSeq down, then finishLaunch
+// takes over. The player watches; the stick and every other input are dead.
+export function launchTrip(g) {
+  const st = g.station;
+  g.phase = 'flight';
+  g.hudVisible = true;
+  g.compass = st;
+  g.launchSeq = LAUNCH_TIME;
+  g.launchT = 0;
+  g.launchLen = curveLength(LAUNCH_PATH, 128);
+  const p = g.player;
+  p.pos = add(st.pos, bez(LAUNCH_PATH, 0));
+  const up = quatRotate(st.quat, [0, 1, 0]);
+  const fwd = quatRotate(st.quat, norm(bezDeriv(LAUNCH_PATH, 0)));
+  p.quat = quatFromBasis(cross(up, fwd), up, fwd);
+  p.speed = g.launchLen / LAUNCH_TIME;
+  p.throttle = Math.min(1, p.speed / p.maxSpeed);
+}
+
+// One frame of the ride: the station turns under the ship, the ship rides
+// the path at a constant speed (arc length / time), and nothing can hurt it
+// until finishLaunch hands the controls back.
+function stepLaunch(g, dt) {
+  const st = g.station;
+  const p = g.player;
+  st.quat = quatNormalize(quatMul(quatAxisAngle(0, 1, 0, st.spin * dt), st.quat));
+  g.launchSeq -= dt;
+  const ds = (g.launchLen / LAUNCH_TIME) * dt;
+  const d = bezDeriv(LAUNCH_PATH, g.launchT);
+  g.launchT = Math.min(1, g.launchT + ds / (len(d) || 1));
+  p.pos = add(st.pos, quatRotate(st.quat, bez(LAUNCH_PATH, g.launchT)));
+  const up = quatRotate(st.quat, [0, 1, 0]);
+  const fwd = quatRotate(st.quat, norm(bezDeriv(LAUNCH_PATH, g.launchT)));
+  p.quat = quatFromBasis(cross(up, fwd), up, fwd);
+  p.vel = scale(fwd, p.speed);
+
+  // The HUD plumbing stepGame normally does, on the far side of its return.
+  g.dialSpeed = p.maxSpeed ? p.speed / p.maxSpeed : 0;
+  const ex = quatRotate(p.quat, [1, 0, 0]);
+  const ey = quatRotate(p.quat, [0, 1, 0]);
+  const ez = quatRotate(p.quat, [0, 0, 1]);
+  g.playerRel.set([ex[0], ex[1], ex[2], ey[0], ey[1], ey[2], ez[0], ez[1], ez[2]]);
+  for (const m of g.messages) m.life -= dt;
+  g.messages = g.messages.filter((m) => m.life > 0);
+  g.scannerEntities = () => g.entities;
+  if (g.launchSeq <= 0) finishLaunch(g);
 }
 
 // selected: a system index from the short-range chart; without one the jump
@@ -1044,6 +1218,11 @@ export function stepGame(g, input, dt) {
   g.events.length = 0;
   if (g.phase === 'title') return g;
   g.time += dt;
+  if (g.hitCooldown > 0) g.hitCooldown -= dt;
+
+  // The launch trip (MISSING-FEATURES #6) runs itself: ten seconds of tube,
+  // input ignored, nothing can hurt the ship — then finishLaunch hands over.
+  if (g.launchSeq > 0) { stepLaunch(g, dt); return g; }
 
   // one-shot inputs
   if (input.jump) jump(g);
@@ -1052,12 +1231,43 @@ export function stepGame(g, input, dt) {
   const p = g.player;
 
   // --- flight ------------------------------------------------------------
-  // A DOCK request with EQ_DOCK_COMP fitted hands the ship to its autopilot:
-  // it turns onto the station and closes at a speed that is already under the
-  // 120 m/s docking limit by the time it gets there. The stick and the
-  // throttle are ignored while it flies.
+  // A DOCK request with EQ_DOCK_COMP fitted hands the ship to its autopilot.
+  // Easy mode flies at the station as a whole (the old shortcut); real mode
+  // flies the slot — swing wide onto the side the ship came in on, sit on the
+  // axis a kilometre out, then crawl in rolled with the station (#6).
   const autoDocking = g.autoDock && !!g.station;
-  if (autoDocking) steerToward(p, g.station.pos, dt, p.pitchRate);
+  const autoLane = autoDocking && !g.easyDock ? lane(g) : null;
+  if (autoDocking) {
+    if (autoLane) {
+      const side = g.dockSwing || cross(autoLane.normal, autoLane.up);
+      const S = add(autoLane.pos, add(scale(autoLane.normal, 1000), scale(side, 2500)));
+      const A = add(autoLane.pos, scale(autoLane.normal, 1000));
+      if (g.dockPhase === 0 && (dist(p.pos, S) < 400 || autoLane.axial > 600)) g.dockPhase = 1;
+      else if (g.dockPhase === 1
+        && (dist(p.pos, A) < 400 || (autoLane.axial < 800 && autoLane.lat < 300))) g.dockPhase = 2;
+      let aim;
+      if (g.dockPhase === 0) aim = S;
+      else if (g.dockPhase === 1) aim = A;
+      else {
+        // Final approach: close on the axis — straight at the mouth from far
+        // out, then 600 m down the axis so the bearing stays shallow enough
+        // for the slot's alignment budget through the contact zone — and bend
+        // the aim by the speed that rides the station's rotation. Flying a
+        // straight line would let the spinning slot sweep past the ship.
+        const toAxis = autoLane.axial >= 400
+          ? autoLane.pos
+          : add(autoLane.pos, scale(autoLane.normal, autoLane.axial - 600));
+        const relS = sub(p.pos, g.station.pos);
+        const vOrbit = scale(cross(autoLane.up, relS), g.station.spin);
+        const dir = norm(add(scale(norm(sub(toAxis, p.pos)), p.speed), vOrbit));
+        aim = add(p.pos, scale(dir, 600));
+      }
+      steerToward(p, aim, dt, p.pitchRate);
+      matchRoll(p, autoLane.up, dt, p.rollRate);
+    } else {
+      steerToward(p, g.station.pos, dt, p.pitchRate);
+    }
+  }
 
   const pitch = input.pitch || 0;
   const yaw = input.yaw || 0;
@@ -1076,10 +1286,20 @@ export function stepGame(g, input, dt) {
   g.dialRoll = roll;
 
   if (autoDocking) {
-    // throttle from the distance left: full approach speed far out, down to a
-    // crawl by the station's 703 m hull, so contact is always a soft dock
-    const sd = dist(g.station.pos, p.pos);
-    p.throttle = Math.min(0.6, Math.max(0, (sd - 350) * 0.18 / p.maxSpeed));
+    if (autoLane) {
+      // Real mode: pace by the distance to the slot mouth — 300 m/s out
+      // front, down to a crawl by the sleeve, with a floor so the approach
+      // always completes. Contact lands well under the 120 m/s limit.
+      const dm = dist(autoLane.pos, p.pos);
+      const want = Math.max(40, Math.min(dm > 900 ? 300 : 150, (dm - 100) * 0.35));
+      p.throttle = want / p.maxSpeed;
+    } else {
+      // Easy mode: throttle from the distance left, as it has always been —
+      // full approach speed far out, down to a crawl by the station's 703 m
+      // hull, so contact is always a soft dock.
+      const sd = dist(g.station.pos, p.pos);
+      p.throttle = Math.min(0.6, Math.max(0, (sd - 350) * 0.18 / p.maxSpeed));
+    }
   } else if (input.throttleSet != null) p.throttle = input.throttleSet;
   else if (input.throttle) p.throttle = Math.max(0, Math.min(1, p.throttle + input.throttle * dt));
   // shortcut: Oolite also burns fuel at 0.25 units/s while boosting; here the
@@ -1178,6 +1398,32 @@ export function stepGame(g, input, dt) {
   for (const e of g.entities) {
     const d = dist(e.pos, p.pos);
     if (d < e.radius + p.radius) {
+      // Real docking (easy mode off): a slow, rolled-in, lined-up approach
+      // threads the slot instead of bouncing off the hull; anything else —
+      // wrong attitude, too fast, or a hit anywhere else on the station —
+      // costs hull and cargo. g.hitCooldown keeps one scrape to one hit.
+      if (e.type === 'station' && !g.easyDock) {
+        const l = lane(g);
+        if (linedUp(l) && p.speed < DOCK_SPEED) {
+          if (l.axial < -p.radius * 0.6) {
+            dock(g);
+            if (g.phase !== 'flight') return g;
+          }
+          continue; // in the lane: sail through the sleeve, no bounce
+        }
+        // One scrape = one hit and one shove; between hits the ship keeps
+        // flying, so a misaligned approach can still recover and line up.
+        if (g.hitCooldown <= 0) {
+          const away = norm(sub(p.pos, e.pos));
+          p.pos = add(e.pos, scale(away, e.radius + p.radius + 1));
+          p.speed *= 0.3;
+          damagePlayer(g, 25);
+          loseCargo(g);
+          g.hitCooldown = 1.5;
+        }
+        if (g.phase !== 'flight') return g;
+        continue;
+      }
       const away = norm(sub(p.pos, e.pos));
       p.pos = add(e.pos, scale(away, e.radius + p.radius + 1));
       p.speed *= 0.3;
@@ -1195,17 +1441,47 @@ export function stepGame(g, input, dt) {
   const st = g.station;
   if (st) {
     const sd = dist(st.pos, p.pos);
-    // DOCK with a docking computer fitted engages its autopilot; without one
-    // the old rule stands (under 1500 m and 250 m/s).
+    // DOCK with a docking computer fitted hands the ship to its autopilot;
+    // real mode without one says why nothing happens (the assisted shortcut
+    // needs no computer — that is the checkbox on the start screen).
     if (input.dockRequest && g.hasEquipment('EQ_DOCK_COMP')) {
-      g.autoDock = true;
-      pushMessage(g, 'DOCKING COMPUTER ENGAGED', BLUE, 4);
+      if (!g.autoDock) {
+        g.autoDock = true;
+        const l0 = lane(g);
+        // Start on the swing wide unless the ship is already out in front of
+        // the slot; the side vector is frozen so the waypoint holds still.
+        g.dockPhase = l0.axial < 600 ? 0 : 1;
+        const rel0 = sub(p.pos, l0.pos);
+        const lat0 = sub(rel0, scale(l0.normal, dot(rel0, l0.normal)));
+        g.dockSwing = len(lat0) > 100 ? norm(lat0) : norm(cross(l0.normal, l0.up));
+        pushMessage(g, 'DOCKING COMPUTER ENGAGED', BLUE, 4);
+      }
+    } else if (input.dockRequest && !g.easyDock) {
+      pushMessage(g, 'DOCKING COMPUTER NOT FITTED', YELLOW, 3);
     }
-    if ((sd < 400 && p.speed < 120) || (input.dockRequest && sd < 1500 && p.speed < 250)) dock(g);
-    else if (sd < 3000 && p.speed >= 120 && !g.autoDock) g.dockHint = 2;
-    else g.dockHint = Math.max(0, g.dockHint - dt);
-    if (g.dockHint > 0 && !g.messages.some((m) => m.text.startsWith('SLOW'))) {
-      pushMessage(g, 'SLOW TO <120 m/s TO DOCK', BLUE, 3);
+    if (g.easyDock) {
+      // Assisted mode (the game's original shortcut): crawl in under the
+      // limit, or ask for it on the DOCK button.
+      if ((sd < 400 && p.speed < 120) || (input.dockRequest && sd < 1500 && p.speed < 250)) dock(g);
+      else if (sd < 3000 && p.speed >= 120 && !g.autoDock) g.dockHint = 2;
+      else g.dockHint = Math.max(0, g.dockHint - dt);
+      if (g.dockHint > 0 && !g.messages.some((m) => m.text.startsWith('SLOW'))) {
+        pushMessage(g, 'SLOW TO <120 m/s TO DOCK', BLUE, 3);
+      }
+    } else {
+      // Real mode: the collision lane above does the docking — this coaches
+      // the approach and explains a refused DOCK request.
+      g.dockHint = 0;
+      if (!g.autoDock && sd < 3000) {
+        const l = lane(g);
+        const hint = p.speed >= DOCK_SPEED ? 'SLOW TO <120 m/s TO DOCK'
+          : l.roll <= 0.85 ? 'MATCH THE STATION ROTATION'
+          : (l.facing <= 0.9 || l.lat >= SLOT_HALF) ? 'LINE UP WITH THE DOCKING SLOT'
+          : '';
+        if (hint && !g.messages.some((m) => m.text.startsWith(hint.slice(0, 8)))) {
+          pushMessage(g, hint, BLUE, 3);
+        }
+      }
     }
   }
 
