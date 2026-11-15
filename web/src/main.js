@@ -11,7 +11,7 @@ import {
   createGame, stepGame, launch, launchTrip, marketFor, buyGood, sellGood, cargoUsed,
   shipyardFor, tradeInValue, buyShip, shipName, zoomScanner, jump,
   equipmentFor, buyEquipment, spawnThargoid, systemsIn, rankName, legalStatus,
-  pushMessage, SUN_POS, SUN_R,
+  pushMessage, spawnStation, SUN_POS, SUN_R,
 } from './game.js';
 import { galaxySystems } from './galaxy.js';
 import { missionView, acceptMission } from './missions.js';
@@ -123,13 +123,14 @@ function drawEntity(e) {
     fallbackColor: e.color.concat(1),
   });
   if (e.type !== 'station') return;
-  // Coriolis subentities: hull faceplate, lit triangles and the dock sleeve.
-  const subs = SHIP_DEFS.coriolis.subentities || [];
-  const offsets = { oolite_coriolis_dock: [0, 0, 500.2561] }; // from shipdata
+  // Station subentities: hull faceplate, lit triangles and the dock sleeve —
+  // whichever station type this is (#13). The sleeve sits on the station's
+  // own dock offset, the rest at the origin, as shipdata places them.
+  const subs = (SHIP_DEFS[key] && SHIP_DEFS[key].subentities) || [];
   for (const sub of subs) {
     const sg = gpu[sub];
     if (!sg) continue;
-    const off = offsets[sub] || [0, 0, 0];
+    const off = sub.endsWith('_dock') ? (e.dockOffset || [0, 0, 0]) : [0, 0, 0];
     const world = add(e.pos, quatRotate(e.quat, off));
     renderer.drawMesh(sg, modelMatrix(world, e.quat, 1), {
       textures: meshTex[sub],
@@ -677,6 +678,18 @@ async function main() {
     if (query.has('witchspace')) {
       game.rand = () => 0; // the interception roll always succeeds
       jump(game);
+    }
+    // ?dodo swaps in a dodecahedron station from a system whose real
+    // planetinfo says so, for the headless smoke (#13)
+    if (query.has('dodo')) {
+      const key = Object.keys(game.planetinfo).find((k) => k.startsWith(`${(game.galaxy || 1) - 1} `)
+        && game.planetinfo[k].station === 'dodecahedron');
+      if (key) {
+        game.systemIndex = Number(key.split(' ')[1]);
+        game.entities = game.entities.filter((e) => e.type !== 'station');
+        game.station = null;
+        spawnStation(game);
+      }
     }
   }
 

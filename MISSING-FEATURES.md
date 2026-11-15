@@ -18,7 +18,7 @@ same day (branch `iter/docking`); item 7 closed 2026-11-15 (branch
 `iter/missions`); their sections
 below keep the original description for the record. Items 8–10 closed
 2026-11-15 (branch `iter/travel`), likewise with their original descriptions
-kept below.
+kept below. Items 11–13 closed the same day (branch `iter/space`), likewise.
 
 **Ranking:** P1 = core identity of the game, P2 = universe & travel depth,
 P3 = flight/combat depth, P4 = fidelity polish.
@@ -265,15 +265,72 @@ corona); still open are the `drawScoopStatus:` HUD dial (a no-op stub in
 `web/src/hud.js`, feedback is by message only) and canisters dropping from
 kills, so there is nothing yet to pick up.
 
+**Done** (branch `iter/space`): every kill now leaves loot — `releaseDebris()`
+in `web/src/game.js` drops one or two cargo canisters on the wreck, and hulls
+whose shipdata `has_escape_pod` says so (a probability on most ships) also
+leave an escape capsule; both drift and tumble on their real Oolite meshes
+(`oolite_barrel`, `oolite_escape_capsule`) as `type: 'cargo'` entities. With
+`EQ_FUEL_SCOOPS` fitted, anything within 200 m **ahead of the nose** is taken
+on the spot: canisters add their tonnes to the hold (`HOLD FULL` turns them
+away), an escape capsule is a rescue that reports `ESCAPE POD RESCUED` and
+carries no cargo. `drawScoopStatus:` is implemented from Oolite's
+`HeadUpDisplay.m`: three stacked chevrons — steady green while the scoops are
+free, breathing while they work (sun fuel or a canister going in), dark green
+with a red foot when the hold is full — hidden entirely without the scoops,
+driven by the new `g.scoopStatus` state (`none | okay | active | full`).
+**shortcut**: no tractor-beam animation and no underside-only pickup rule —
+Oolite tractors cargo in from further out and only on the ship's lower side;
+the port collects within 200 m in front, which a touch stick can line up.
+
 ### 12. Asteroid mining
 Original: mining is one of the four income routes, with a mining laser and
 rocks to break up (Wikipedia; Archimedes version shows miners at work). Port:
 no asteroids exist in `web/src/game.js`.
 
+**Done** (branch `iter/space`): asteroids are `type: 'rock'` entities on the
+real `oolite_template_asteroid` data (energy 100, no recharge, bounty 10) and
+the real `oolite_asteroid` mesh; `spawnAsteroidField()` in `web/src/game.js`
+scatters a deterministic field of 1–7 rocks 8–20 km ahead of the nose on
+every launch and arrival, and they tumble and drift as white, unpowered
+contacts on the scanner. Shots break them: the standard beam needs two
+(60 damage vs the rock's 100 energy — the same maths as Oolite's pulse laser
+against `max_energy` 100), and the **Mining Laser** joined the shop at its
+real `equipment.plist` price (8 000 CR, tech level 10) — fitting it gives the
+beam the weapon's real `weapon_info` numbers (range 12 500 m, shot
+temperature 10, so it never overheats) and breaks a rock in one shot. A
+broken rock pays its 10 CR bounty ("a small fee paid for their destruction",
+`descriptions.plist`) and releases 1–2 ore canisters rolled from minerals,
+gold, platinum or gem-stones — scoop them (#11) and sell them at the market.
+**shortcut**: upstream breaks an asteroid into boulders, the boulders into
+splinters, and only scooping a splinter yields 1 t of minerals — three stages
+over as many shots; the port collapses that to one stage with the four ore
+goods, so mining actually pays. Also not ported: rock hermits and Oolite's
+lane-based script populator (`oolite-populator.js`) — the port's field is one
+deterministic handful per system, near the player.
+
 ### 13. Dodo stations
 Original: besides Coriolis there are dodecahedron "Dodo" stations (ZX guide).
 Port: Coriolis only (`spawnStation()` in `web/src/game.js`, one model in
 `web/assets/models`).
+
+**Done** (branch `iter/space`): `spawnStation()` in `web/src/game.js` picks
+the station from the real `planetinfo.plist` — every system entry carries
+`station = "coriolis" | "dodecahedron"` under the galaxy/system key Oolite's
+`OOSystemDescriptionManager` reads, and 22 of galaxy 1's 256 systems say
+dodecahedron — so some systems really do get a Dodo, and the type follows the
+commander across jumps and loads. The Dodo ships as the real `oolite_dodo.dat`
+mesh with its faceplate and dock subentities on their real textures
+(`tools/copy-assets.sh`), drawn through the same `SHIP_DEFS` path as the
+Coriolis; it spins at the same 0.02 rad/s and docks under the same slot rules,
+with its own shipdata sleeve offset (560.3216 m vs the Coriolis's 500.2561 m)
+feeding `dockFrame()`. Saves gained no field: `applySave()` rebuilds the
+station for the loaded system, so old saves still load and one saved in a
+dodecahedron system comes back to its Dodo (`tests/test-dodo.mjs`, and
+`?dodo=1` forces a Dodo for the headless smoke).
+**shortcut**: both sleeves are judged against the same 130 m lateral budget
+even though their real mouths differ (the meshes span ~121 m and ~105×40 m),
+and the station type comes straight from planetinfo rather than Oolite's
+ship-role populator.
 
 ---
 

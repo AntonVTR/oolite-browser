@@ -18,7 +18,8 @@ gyro, keyboard/mouse and gamepad.
 - **Flight model** ported from `src/Core/Entities/ShipEntity.m`, using the real
   per-ship numbers from `shipdata.plist` (`max_flight_speed`, `max_flight_pitch`,
   `max_flight_roll`, `max_energy`, `max_cargo`, …).
-- **Gameplay loop**: launch from a Coriolis station → fly → shoot pirates →
+- **Gameplay loop**: launch from a Coriolis or Dodecahedron (Dodo) station →
+  fly → shoot pirates →
   dock → buy/sell commodities → trade your ship in at the shipyard → refuel →
   witchspace jump to the next system → repeat. Credits, cargo hold, bounty
   rewards, shields, laser heat, death.
@@ -27,6 +28,10 @@ gyro, keyboard/mouse and gamepad.
   **EASY MODE** on the start screen for the old assisted shortcut (the
   preference is remembered in `localStorage`). LAUNCH rides the original's
   10-second trip out of the force-field tube instead of teleporting.
+- **Dodo stations**: which systems get a Coriolis and which a dodecahedron
+  **Dodo** comes from the real `planetinfo.plist` (`station = "dodecahedron"`
+  — 22 of galaxy 1's 256 systems); the Dodo is Oolite's own mesh and
+  textures and docks under the same slot rules on its own sleeve offset.
 - **Combat rating and legal status**: kills advance you Harmless → Elite on
   the original's kill thresholds, crimes (firing on innocents in the station's
   protection zone, killing traders or police) make the Vipers hunt you as the
@@ -69,6 +74,18 @@ gyro, keyboard/mouse and gamepad.
   docked screen with an ACCEPT button, progress shows in the HUD messages
   across hyperspace jumps, and each job pays cash on completion
   (`web/src/missions.js`).
+- **Fuel scooping**: besides skimming the sun's corona, the scoops collect
+  what kills leave behind — cargo canisters from every wreck, and an escape
+  capsule from hulls that carry one (scooping it is a rescue) — within 200 m
+  ahead of the nose while the hold has room. The HUD's scoop dial (Oolite's
+  `drawScoopStatus:`) shows it: steady green when ready, breathing while the
+  scoops work, dark green with a red foot when the hold is full.
+- **Asteroid mining**: every system scatters a field of rocks on the real
+  asteroid mesh and shipdata; break them with the laser (two shots) or buy
+  the **Mining Laser** (8 000 CR) for 12.5 km range, cool running and one-shot
+  rocks. Broken rocks pay a 10 CR bounty and release ore canisters — minerals,
+  gold, platinum or gem-stones — for the scoops to collect and the market to
+  buy.
 
 ## Not ported yet
 
@@ -77,10 +94,11 @@ gyro, keyboard/mouse and gamepad.
   priority AI), which this port does not have. The Galactic Navy chain itself
   is hand-rolled as plain data instead (see below, #7); the rest of Oolite's
   script content is untouched.
-- 31 of the 41 equipment types — the shop sells ten of them (cargo bay,
+- 30 of the 41 equipment types — the shop sells eleven of them (cargo bay,
   extra energy unit, shield boosters, docking computer, fuel scoops, escape
-  pod, fuel injectors, E.C.M., missiles, galactic hyperdrive), while lasers,
-  cloak, passenger berth and the rest are not modelled — plus ship AI scripts
+  pod, fuel injectors, E.C.M., missiles, galactic hyperdrive, mining laser),
+  while the other laser types, cloak, passenger berth and the rest are not
+  modelled — plus ship AI scripts
   (`.js`), mines and missile-vs-missile interception.
 - Cockpit view, real sun/planet textures (both are shaded spheres), wormholes.
 
@@ -121,14 +139,16 @@ The station screen has two tabs: **Market** (the 17 commodities of
 `trade-goods.plist`, each with the price and stock the current system's
 economy gives it — food is cheap where it is grown, computers where they are
 built — and contraband tagged **ILLEGAL**; selling it is a crime. Below them
-an **Equipment** section with ten items at their real `equipment.plist`
+an **Equipment** section with eleven items at their real `equipment.plist`
 prices: Large Cargo Bay (+15 t hold), Extra Energy Unit (recharge ×1.8),
 Shield Boosters (+128 shields), E.C.M. System, missiles (300 CR each — past
 the hull's pylons every missile brings its own rack), Fuel Scoops (skim the
 sun's corona to refill the tank), Escape Pod (destruction becomes a rescue:
 same ship, cargo lost), Witchdrive Fuel Injectors (BOOST does nothing until
-they are bought), the Docking Computer and the **Galactic Hyperdrive**
-(50 000 CR — one jump to the next galaxy, fired from the chart, see below). The other tab is **Shipyard**
+they are bought), the Docking Computer, the **Galactic Hyperdrive**
+(50 000 CR — one jump to the next galaxy, fired from the chart, see below)
+and the **Mining Laser** (8 000 CR — 12.5 km range, cool running, breaks an
+asteroid in one shot). The other tab is **Shipyard**
 (eleven hulls with
 real `shipyard.plist` prices; your current ship is traded in at ~71% of its
 price, cargo is sold off automatically, and a bought hull leaves the stock for
@@ -167,6 +187,9 @@ node tests/test-save.mjs      # auto-save round trip, bad saves rejected, manual
 node tests/test-missions.mjs  # Navy missions: offer order, accept, jump progress, reward, save
 node tests/test-chart.mjs     # short/long chart views, system data screen, fuel ring, jump range
 node tests/test-travel.mjs    # galactic hyperspace and witchspace: crossing, stranding, escape
+node tests/test-scoop.mjs     # fuel scooping: canisters, escape capsules, the scoop dial
+node tests/test-mining.mjs    # asteroids, the mining laser, ore that pays at the market
+node tests/test-dodo.mjs      # planetinfo picks Coriolis vs Dodo, and the Dodo docks
 python3 -m http.server 8099 --directory web   # local server
 # headless smoke test (console errors + screenshots):
 google-chrome --headless=new --virtual-time-budget=6000 --screenshot=/tmp/shot.png \
@@ -198,6 +221,10 @@ google-chrome --headless=new --enable-logging=stderr --virtual-time-budget=6000 
 google-chrome --headless=new --enable-logging=stderr --virtual-time-budget=8000 \
   --user-data-dir=/tmp/oolite-witch --screenshot=/tmp/witch.png \
   'http://127.0.0.1:8099/?autostart=1&witchspace=1' 2>&1 | grep CONSOLE
+# a dodecahedron station in a system whose real planetinfo says so (#13):
+google-chrome --headless=new --enable-logging=stderr --virtual-time-budget=6000 \
+  --user-data-dir=/tmp/oolite-dodo --screenshot=/tmp/dodo.png \
+  'http://127.0.0.1:8099/?autostart=1&dodo=1' 2>&1 | grep CONSOLE
 ```
 
 `tools/copy-assets.sh` copies the used subset of `upstream/Resources` into

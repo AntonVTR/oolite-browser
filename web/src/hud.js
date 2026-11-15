@@ -46,7 +46,7 @@ export class Hud {
       'drawFPSInfoCounter:': (i) => this.drawFPS(i),
       'drawAegis:': () => {},
       'drawStickSensitivityIndicator:': () => {},
-      'drawScoopStatus:': () => {},
+      'drawScoopStatus:': (i) => this.drawScoopStatus(i),
       'drawPrimedEquipment:': () => {},
       'drawWaypoints:': () => {},
       'drawASCTarget:': () => {},
@@ -223,6 +223,44 @@ export class Hud {
     const p = this.place(info, -200, -209, 80, 8);
     if (info.draw_surround) this.surround(p.x, p.y, p.w, p.h, GREEN, p.a);
     this.bar(p.x, p.y, p.w, p.h, this.g.altitudeFraction, GREEN, p.a);
+  }
+
+  // The fuel scoop status dial (HeadUpDisplay.m drawScoopStatus:): three
+  // stacked chevrons — steady green while the scoops are free to work,
+  // pulsing while they drink (sun fuel or a canister going into the hold),
+  // dark green with a red foot when the hold is full. Drawn only with
+  // EQ_FUEL_SCOOPS fitted, from g.scoopStatus (#11).
+  drawScoopStatus(info) {
+    const g = this.g;
+    if (!g.scoopStatus || g.scoopStatus === 'none') return;
+    const p = this.place(info, -132, -152, 16, 16); // SCOOPSTATUS_* defaults
+    const x = p.x, y = p.y;
+    const w1 = p.w / 8, w2 = 2 * w1, w4 = 4 * w1;
+    const h1 = p.h / 8, h2 = 2 * h1, h3 = 3 * h1, h4 = 4 * h1;
+    const full = g.scoopStatus === 'full';
+    const active = g.scoopStatus === 'active';
+    const body = full ? DARKGREEN : GREEN;
+    const a0 = full ? p.a * 0.75 : p.a;
+    // active: each section breathes on its own phase, as upstream does
+    const sec = (i) => (active ? a0 * 0.5 * (1 + Math.sin(g.time * 8 - i)) : a0);
+    const ctx = this.ctx;
+    const quad = (pts, color, a) => {
+      ctx.fillStyle = this.rgba(color, a);
+      ctx.beginPath();
+      ctx.moveTo(this.X(pts[0][0]), this.Y(pts[0][1]));
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(this.X(pts[i][0]), this.Y(pts[i][1]));
+      ctx.closePath();
+      ctx.fill();
+    };
+    // section 1: the top diamond
+    quad([[x, y + h1], [x - w2, y + h2], [x, y + h3], [x + w2, y + h2]], body, sec(1));
+    // section 2: the wide middle wings
+    quad([[x, y - h1], [x - w4, y + h1], [x - w4, y + h2], [x, y]], body, sec(2));
+    quad([[x, y - h1], [x + w4, y + h1], [x + w4, y + h2], [x, y]], body, sec(2));
+    // section 3: the foot, red when the hold will not take more
+    const foot = full ? RED : body;
+    quad([[x, y - h4], [x - w2, y - h2], [x - w2, y - h1], [x, y - h2]], foot, sec(3));
+    quad([[x, y - h4], [x + w2, y - h2], [x + w2, y - h1], [x, y - h2]], foot, sec(3));
   }
 
   drawSurround(info, color) {

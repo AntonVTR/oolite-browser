@@ -23,10 +23,23 @@ export const SHIP_DEFS = {
   constrictor: { shipKey: 'oolite_template_constrictor', model: 'oolite_constrictor' },
   // the hostile alien, with its real warship mesh and hull texture
   thargoid: { shipKey: 'oolite_template_thargoid', model: 'oolite_thargoid' },
+  // free-floating loot the fuel scoops pick up (#11): cargo canisters dropped
+  // by kills and escape capsules left behind by wrecks
+  barrel: { shipKey: 'oolite_template_barrel', model: 'oolite_barrel' },
+  escapecapsule: { shipKey: 'oolite_template_escape-capsule', model: 'oolite_escape_capsule' },
+  // the mineable rocks of #12, on their real shipdata template and mesh
+  asteroid: { shipKey: 'oolite_template_asteroid', model: 'oolite_asteroid' },
   coriolis: {
     shipKey: 'oolite_template_coriolis-station',
     model: 'oolite_coriolis',
     subentities: ['oolite_coriolis_faceplate', 'oolite_coriolis_tris', 'oolite_coriolis_dock'],
+  },
+  // the dodecahedron station some systems get (#13), on the real mesh and
+  // the real oolite_template_dodecahedron-station data
+  dodo: {
+    shipKey: 'oolite_template_dodecahedron-station',
+    model: 'oolite_dodo',
+    subentities: ['oolite_dodo_faceplate', 'oolite_dodo_dock'],
   },
 };
 

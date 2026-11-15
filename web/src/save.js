@@ -6,7 +6,7 @@
 // crash the game — loadGame() just returns false and the title screen starts
 // fresh.
 
-import { spawnPirate, spawnTrader, spawnPolice, spawnStation } from './game.js';
+import { spawnPirate, spawnTrader, spawnPolice, spawnStation, spawnAsteroidField } from './game.js';
 import { missionState, MISSION_IDS } from './missions.js';
 
 export const SAVE_KEY = 'oolite-browser.save';
@@ -134,7 +134,7 @@ export function applySave(g, data) {
   g.mission = d.mission;
   Object.assign(g.player, d.player);
 
-  g.entities = g.entities.filter((e) => e.type === 'station');
+  g.entities = [];
   g.shots = [];
   g.explosions = [];
   g.missiles = [];
@@ -152,7 +152,10 @@ export function applySave(g, data) {
   g.markets = {}; // prices belong to a (galaxy, system) pair — start clean (#8)
   g.galConfirm = false;
   g.witchspace = false; // saves never hold a stranded commander (#10)
-  if (!g.station) spawnStation(g); // a load always restores a station
+  // a load rebuilds the station for the loaded system, so a save from a
+  // dodecahedron system comes back to its own station type (#13)
+  g.station = null;
+  spawnStation(g);
   if (d.phase === 'flight') {
     const st = g.station;
     g.player.pos = [st.pos[0] + 1200, st.pos[1], st.pos[2] - 2966];
@@ -162,6 +165,7 @@ export function applySave(g, data) {
     spawnPirate(g);
     spawnTrader(g);
     spawnPolice(g);
+    spawnAsteroidField(g); // the rebuilt sky carries rocks too (#12)
   }
   return true;
 }
