@@ -746,12 +746,26 @@ async function main() {
     if (query.has('wire')) renderer.wireframe = true;
     // ?thargoid puts the alien warship ahead of the nose (headless smoke test)
     if (query.has('thargoid')) spawnThargoid(game);
-    // ?jdrive presses the in-system J-drive once (headless smoke, #20)
-    if (query.has('jdrive')) window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyH' }));
-    // ?dcomp fits the docking computer and presses DOCK (headless smoke, #21)
+    // ?jdrive presses the in-system J-drive once (headless smoke, #20): with
+    // the station right ahead the drive must refuse, warn and stay put
+    if (query.has('jdrive')) {
+      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyH' }));
+      setTimeout(() => {
+        if (!game.messages.some((m) => m.text.startsWith('J-DRIVE BLOCKED'))) {
+          console.error('jdrive smoke: no refusal near the station');
+        } else console.log('jdrive smoke: refused with the warning');
+      }, 100);
+    }
+    // ?dcomp fits the docking computer and presses DOCK (headless smoke, #21):
+    // the autopilot takes the ship, which is what starts its music
     if (query.has('dcomp')) {
       game.player.equipment.EQ_DOCK_COMP = true;
       window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Enter' }));
+      let tries = 0;
+      const t = setInterval(() => {
+        if (game.autoDock) { clearInterval(t); console.log('dcomp smoke: autopilot engaged'); }
+        else if (++tries > 100) { clearInterval(t); console.error('dcomp smoke: autopilot never engaged'); }
+      }, 25);
     }
     // ?chart opens the short-range chart, ?chart=long the whole galaxy (#9)
     if (query.has('chart')) {
