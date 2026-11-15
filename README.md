@@ -127,13 +127,18 @@ real `shipyard.plist` prices; your current ship is traded in at ~71% of its
 price, cargo is sold off automatically, and a bought hull leaves the stock for
 good). Refuel from the same screen.
 
-**Chart** (`C` / CHART): the short-range list of everything inside the 7 ly
-ring with its real data. With the **Galactic Hyperdrive** fitted (50 000 CR)
-the chart also carries a **GALACTIC JUMP** button — press it **twice**
-(first arms it, `CONFIRM — GALAXY n`) to cross into the next galaxy: one-shot
-drive, no fuel cost, galaxy 8 wraps to 1, you land on the system nearest the
-galaxy's centre (96, 96) and your legal record is cleared, exactly as the
-original's galactic jump works.
+**Chart** (`C` / CHART): a **SHORT RANGE** view — everything inside the 7 ly
+ring with its real data — and a **LONG RANGE** view of the whole galaxy, each
+with a tap-to-select **system data** panel under the map: distance, economy,
+government, tech level, population, gross productivity, average radius and
+the system description, the same fields the original's data screen shows.
+Tapping a star or a row moves the panel; JUMP still flies the hop. With the
+**Galactic Hyperdrive** fitted (50 000 CR) the chart also carries a
+**GALACTIC JUMP** button — press it **twice** (first arms it,
+`CONFIRM — GALAXY n`) to cross into the next galaxy: one-shot drive, no fuel
+cost, galaxy 8 wraps to 1, you land on the system nearest the galaxy's centre
+(96, 96) and your legal record is cleared, exactly as the original's
+galactic jump works.
 
 **Save / load**: docking still writes the auto-save that **CONTINUE** on the
 title screen loads. On top of that, the station screen has a **SAVE** button
@@ -153,6 +158,8 @@ node tests/test-view.mjs      # camera / coordinate-frame convention
 node tests/test-touch.mjs     # double-tap zoom guard
 node tests/test-save.mjs      # auto-save round trip, bad saves rejected, manual slots
 node tests/test-missions.mjs  # Navy missions: offer order, accept, jump progress, reward, save
+node tests/test-chart.mjs     # short/long chart views, system data screen, fuel ring, jump range
+node tests/test-travel.mjs    # galactic hyperspace: two-press crossing, wrap, arrival point
 python3 -m http.server 8099 --directory web   # local server
 # headless smoke test (console errors + screenshots):
 google-chrome --headless=new --virtual-time-budget=6000 --screenshot=/tmp/shot.png \
@@ -175,6 +182,11 @@ google-chrome --headless=new --virtual-time-budget=6000 --screenshot=/tmp/easy.p
   'http://127.0.0.1:8099/?autostart=1&easy=1'
 google-chrome --headless=new --virtual-time-budget=13000 --screenshot=/tmp/trip.png \
   'http://127.0.0.1:8099/?autostart=1&trip=1'
+# the long-range chart: whole galaxy + system data panel, console-clean:
+google-chrome --headless=new --enable-logging=stderr --virtual-time-budget=6000 \
+  --window-size=760,1400 --user-data-dir=/tmp/oolite-long \
+  --screenshot=/tmp/long.png \
+  'http://127.0.0.1:8099/?autostart=1&chart=long' 2>&1 | grep CONSOLE
 ```
 
 `tools/copy-assets.sh` copies the used subset of `upstream/Resources` into

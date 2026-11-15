@@ -585,8 +585,9 @@ async function main() {
 
   // The chart and the status screen both own the flight screen, so opening
   // one closes the other — keys, the two buttons and ?chart/?status all
-  // route through these.
-  const toggleChartUI = () => { closeStatus(); toggleChart(game, playEvents); };
+  // route through these. The chart takes 'long' to open on the galaxy-wide
+  // view (the ?chart=long smoke, #9).
+  const toggleChartUI = (view) => { closeStatus(); toggleChart(game, playEvents, view); };
   const toggleStatusUI = () => { closeChart(); toggleStatus(game); };
 
   // CHART button next to the other flight controls (the C key does the same).
@@ -665,8 +666,10 @@ async function main() {
     if (query.has('zoom') && z >= 1 && z <= 5) game.scannerZoom = Math.round(z);
     // ?thargoid puts the alien warship ahead of the nose (headless smoke test)
     if (query.has('thargoid')) spawnThargoid(game);
-    // ?chart opens the short-range chart (headless smoke test)
-    if (query.has('chart')) toggleChartUI();
+    // ?chart opens the short-range chart, ?chart=long the whole galaxy (#9)
+    if (query.has('chart')) {
+      toggleChartUI(query.get('chart') === 'long' ? 'long' : undefined);
+    }
     // ?status opens the in-flight status screen (headless smoke test)
     if (query.has('status')) toggleStatusUI();
   }
