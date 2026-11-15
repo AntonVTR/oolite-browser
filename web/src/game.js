@@ -108,6 +108,20 @@ const YELLOW = [1, 1, 0];
 // so the heavy ships really are slow and tough.
 const PIRATE_KEYS = ['mamba', 'krait', 'cobramk1', 'asp', 'gecko', 'constrictor'];
 const TRADER_KEYS = ['python', 'anaconda', 'boa', 'boa-mk2', 'adder'];
+// Passenger runs (#15): light traffic that shuts between station and planet
+// and runs from danger on sight. shortcut: none of the port's 14 meshes is a
+// dedicated liner, so the shuttle role rides the Cobra and the Adder — the
+// Adder's own shipdata roles include `shuttle`.
+const PASSENGER_KEYS = ['cobra3', 'adder'];
+
+// Behaviour states and ranges (#15). Every NPC either fights its nearest foe,
+// runs from a threat, or patrols on a straight line.
+const PEACEFUL_ROLES = ['trader', 'passenger'];
+const ENGAGE_RANGE = 8000;    // how close a hostile must be to fight at all
+const POLICE_ENGAGE = 10000;  // the protection radius a clean viper patrols
+const PASSENGER_FLEE = 4000;  // shuttles run from a hostile on sight
+const FLEE_RANGE = 15000;     // keep running while the threat is this close
+const MAX_PEACEFUL = 2;       // one hauler and one shuttle: inhabited, not crowded
 
 function shipData(g, key) { return g.shipdata[key]; }
 // Ship stats live in templates. Player hulls are thin layers over the real
@@ -253,6 +267,16 @@ export function spawnTrader(g) {
   const key = TRADER_KEYS[g.traderSeq++ % TRADER_KEYS.length];
   const s = makeShip(g, key, spawnAhead(g, 1200, 3200), [0, 0, 0, 1],
     { hostile: false, role: 'trader' });
+  g.entities.push(s);
+  return s;
+}
+
+// Passenger traffic (#15): the light shuttle runs, non-hostile like the
+// haulers but quick to run — see updateNPC for the flee rules.
+export function spawnPassenger(g) {
+  const key = PASSENGER_KEYS[g.passengerSeq++ % PASSENGER_KEYS.length];
+  const s = makeShip(g, key, spawnAhead(g, 1000, 2800), [0, 0, 0, 1],
+    { hostile: false, role: 'passenger' });
   g.entities.push(s);
   return s;
 }
@@ -507,6 +531,7 @@ export function createGame(assets) {
     mission: missionState(), // the Galactic Navy chain (#7), travels in the save
     pirateSeq: 0,
     traderSeq: 0,
+    passengerSeq: 0,
     equipmentTypes: assets.plists.equipment || [], // real equipment.plist rows
     hasEquipment: (key) => !!g.player.equipment[key],
 
@@ -1183,6 +1208,7 @@ function arriveClean(g) {
   g.player.speed = 150;
   spawnPirate(g);
   spawnTrader(g);
+  spawnPassenger(g); // the hauler and the shuttle of the local traffic (#15)
   spawnPolice(g);
   spawnAsteroidField(g); // a fresh sky has fresh rocks to mine (#12)
 }
@@ -1272,7 +1298,7 @@ function fireLaser(g) {
   }
 }
 
-function damageShip(g, ship, amount, fromPlayer) {
+function damageShip(g, ship, amount, fromPlayer, attacker) {
   // Crimes: hit the police anywhere, or any innocent ship inside the
   // station's protection zone (MISSING-FEATURES.md #2). Firing crime is
   // charged once per innocent target, not on every beam tick.
@@ -1280,6 +1306,12 @@ function damageShip(g, ship, amount, fromPlayer) {
       && (ship.role === 'police' || inProtectionZone(g, ship.pos))) {
     ship.playerAttacked = true;
     addCrime(g, CRIME_FIRING);
+  }
+  // Peaceful shipping runs from whoever hit it (#15) — haulers once they are
+  // hit, shuttles also on sight (see updateNPC).
+  if (!ship.hostile && PEACEFUL_ROLES.includes(ship.role)) {
+    ship.fleeing = true;
+    ship.fleeFrom = attacker || g.player;
   }
   ship.energy -= amount;
   g.events.push({ type: 'hit' });
@@ -1296,6 +1328,10 @@ function damageShip(g, ship, amount, fromPlayer) {
     pushMessage(g, `SHIP DESTROYED — ${ship.bounty} CR BOUNTY`, YELLOW, 6);
     const missionMsg = missionOnKill(g, ship);
     if (missionMsg) pushMessage(g, missionMsg, GREEN, 6);
+  } else if (PEACEFUL_ROLES.includes(ship.role)) {
+    // a kill the commander did not make: no bounty, no crime, but the sky
+    // reports the shipping it just lost (#15)
+    pushMessage(g, `${String(ship.name || ship.shipKey).toUpperCase()} DESTROYED`, RED, 4);
   }
 }
 
@@ -1513,6 +1549,64 @@ function integrate(e, dt, speedScale = 1) {
   e.pos = add(e.pos, scale(e.vel, dt));
 }
 
+// Who this NPC fights right now (#15): null means nobody worth chasing, so
+// the ship patrols. The police hunt hostiles while your record is clean and
+// you the moment it is not; Thargoids attack everything that moves; pirates
+// go for whatever is closest — you, or the peaceful shipping that crosses
+// their path (the original's pilots farm their rating on traders).
+function pickFoe(g, e) {
+  const p = g.player;
+  const cands = [];
+  const see = (other, range) => {
+    if (other && other.alive && dist(other.pos, e.pos) <= range) cands.push(other);
+  };
+  if (e.role === 'police') {
+    if (e.hostile) return p.alive ? p : null;
+    for (const o of g.entities) {
+      if (o.type === 'ship' && o !== e && o.hostile && o.role !== 'police') see(o, POLICE_ENGAGE);
+    }
+  } else if (e.role === 'thargoid') {
+    see(p, ENGAGE_RANGE);
+    for (const o of g.entities) {
+      if (o.type === 'ship' && o !== e
+        && (PEACEFUL_ROLES.includes(o.role) || o.role === 'police')) see(o, ENGAGE_RANGE);
+    }
+  } else {
+    see(p, ENGAGE_RANGE);
+    for (const o of g.entities) {
+      if (o.type === 'ship' && o !== e && PEACEFUL_ROLES.includes(o.role)) see(o, ENGAGE_RANGE);
+    }
+  }
+  let best = null;
+  let bestD = Infinity;
+  for (const c of cands) {
+    const d = dist(c.pos, e.pos);
+    if (d < bestD) { bestD = d; best = c; }
+  }
+  return best;
+}
+
+// The nearest hostile ship within `range` of e — what a shuttle runs from.
+function nearestHostile(g, e, range) {
+  let best = null;
+  let bestD = Infinity;
+  for (const o of g.entities) {
+    if (o.type !== 'ship' || !o.hostile) continue;
+    const d = dist(o.pos, e.pos);
+    if (d <= range && d < bestD) { bestD = d; best = o; }
+  }
+  return best;
+}
+
+// Run away from a threat until it is far behind, then rejoin the traffic.
+function fleeStep(e, g, dt) {
+  const from = e.fleeFrom && e.fleeFrom.pos ? e.fleeFrom.pos : g.player.pos;
+  if (dist(from, e.pos) > FLEE_RANGE) { e.fleeing = false; return false; }
+  steerToward(e, add(e.pos, scale(norm(sub(e.pos, from)), 2000)), dt, e.pitchRate);
+  integrate(e, dt, 1);
+  return true;
+}
+
 function updateNPC(e, g, dt) {
   const p = g.player;
   const toPlayer = sub(p.pos, e.pos);
@@ -1529,10 +1623,30 @@ function updateNPC(e, g, dt) {
     }
   }
 
-  if (e.role === 'trader' || (e.role === 'police' && !e.hostile)) {
-    // Traders drift past on a straight line and never engage; a clean
-    // commander's police escort drifts by the same way (shortcut: no patrol
-    // routes — they fly a straight line like the traders do).
+  // --- peaceful shipping: patrol, and run from what cannot be fought (#15)
+  if (e.role === 'trader' || e.role === 'passenger') {
+    if (!e.fleeing) {
+      // shuttles run from a hostile on sight, haulers only once they are hit
+      // (damageShip sets fleeing and whoever hit them as the threat)
+      if (e.role === 'passenger') {
+        const t = nearestHostile(g, e, PASSENGER_FLEE);
+        if (t) { e.fleeing = true; e.fleeFrom = t; }
+      }
+    }
+    if (e.fleeing && fleeStep(e, g, dt)) {
+      if (d > 25000) e.alive = false;
+      return;
+    }
+    if (d > 20000) { e.alive = false; return; }
+    integrate(e, dt, 0.5);
+    return;
+  }
+
+  // A clean commander's police escort flies with the traders — until a
+  // hostile comes close enough to protect them from (#15).
+  if (e.role === 'police' && !e.hostile) {
+    const guard = pickFoe(g, e);
+    if (guard) { engageNPC(e, g, dt, guard); return; }
     if (d > 20000) { e.alive = false; return; }
     integrate(e, dt, 0.5);
     return;
@@ -1552,51 +1666,76 @@ function updateNPC(e, g, dt) {
     return;
   }
 
+  const foe = pickFoe(g, e);
+  if (!foe) {
+    // nobody in range worth fighting: keep the sky moving on a straight line
+    if (d > 20000) { e.alive = false; return; }
+    integrate(e, dt, 0.5);
+    return;
+  }
+  engageNPC(e, g, dt, foe);
+}
+
+// The fight itself: turn onto the foe, close, fire when aligned. The foe is
+// the player or another ship — NPC-on-NPC laser fire costs the victim hull
+// and pays nobody (shortcut: no NPC kill rewards or ratings here).
+function engageNPC(e, g, dt, foe) {
+  const p = g.player;
+  const df = dist(foe.pos, e.pos);
+
   e.think -= dt;
   if (e.think <= 0) {
     e.think = 0.4 + Math.random() * 0.6;
     e.strafePhase += 0.7;
   }
 
-  let aimAt = p.pos;
-  if (d < 700) {
-    // Too close: fly past instead of pinning on the player.
+  let aimAt = foe.pos;
+  if (df < 700) {
+    // Too close: fly past instead of pinning on the foe.
     const fwd = quatRotate(e.quat, [0, 0, 1]);
     aimAt = add(e.pos, scale(fwd, 2000));
-  } else if (d < 4000) {
+  } else if (df < 4000) {
     // Circle strafe so dogfights do not become head-on stalls.
-    const tangent = cross(norm(toPlayer), [0, 1, 0]);
-    aimAt = add(p.pos, scale(norm(tangent), Math.sin(e.strafePhase) * 600));
+    const tangent = cross(norm(sub(foe.pos, e.pos)), [0, 1, 0]);
+    aimAt = add(foe.pos, scale(norm(tangent), Math.sin(e.strafePhase) * 600));
   }
   steerToward(e, aimAt, dt, e.pitchRate * 0.9);
-  integrate(e, dt, d < 900 ? 1.0 : 0.85);
+  integrate(e, dt, df < 900 ? 1.0 : 0.85);
 
   // Fire when roughly aligned and in range.
   e.fireCooldown -= dt;
   const fwd = quatRotate(e.quat, [0, 0, 1]);
-  const aim = norm(sub(p.pos, e.pos));
+  const aim = norm(sub(foe.pos, e.pos));
   const aligned = dot(fwd, aim);
-  if (e.fireCooldown <= 0 && d < 3500 && aligned > 0.985) {
+  if (e.fireCooldown <= 0 && df < 3500 && aligned > 0.985) {
     e.fireCooldown = 1.1 + Math.random() * 0.7;
+    const hits = aligned > 0.995 || Math.random() < 0.5;
     g.shots.push({
       from: add(e.pos, scale(fwd, e.radius)),
-      to: add(p.pos, scale(norm(sub(e.pos, p.pos)), -len(sub(e.pos, p.pos)))),
-      life: 0.12, hostile: true,
+      to: foe.pos.slice(),
+      life: 0.12,
+      hostile: foe === p, // only a shot at the commander can hurt the player
+      npc: foe !== p,     // …and amber on the scanner beam for the rest
     });
     g.events.push({ type: 'laser' });
-    if (aligned > 0.995 || Math.random() < 0.5) damagePlayer(g, 35);
+    if (hits) {
+      if (foe === p) damagePlayer(g, 35);
+      else damageShip(g, foe, 35, false, e);
+    }
   }
 
-  // Missiles: hostiles loose one now and then once in range. The first shot
-  // waits 15–40 s so a fresh commander is not swarmed on launch.
+  // Missiles are for the commander: a hostile busy with the shipping does
+  // not loose one at you from across the sky. The first shot waits 15–40 s
+  // so a fresh commander is not swarmed on launch.
   // shortcut: NPCs carry unlimited missiles — only the player counts a pylon.
+  if (foe !== p) return;
   if (e.missileCd === undefined) e.missileCd = 15 + Math.random() * 25;
   e.missileCd -= dt;
   if (e.missileCd <= 0) {
     e.missileCd = e.role === 'thargoid' ? 18 + Math.random() * 15 : 25 + Math.random() * 30;
     const inbound = g.missiles.reduce((n, m) => n + (m.hostile ? 1 : 0), 0);
     const shoots = e.role === 'thargoid' || Math.random() < 0.5;
-    if (d < 6000 && d > 200 && inbound < 2 && p.alive && shoots) {
+    if (df < 6000 && df > 200 && inbound < 2 && p.alive && shoots) {
       launchMissileAt(g, e, p, true);
     }
   }
@@ -1835,24 +1974,33 @@ export function stepGame(g, input, dt) {
     : cargoUsed(g) >= p.maxCargo ? 'full'
     : 'okay';
 
-  // --- respawn contacts ---------------------------------------------------
+  // --- respawn contacts (#15) ----------------------------------------------
+  // Caps, not timers, keep the sky inhabited without crowding it: at most two
+  // hostiles, one hauler and one shuttle (MAX_PEACEFUL) and the viper patrol.
   g.spawnTimer -= dt;
-  const hostiles = g.entities.filter((e) => e.hostile).length;
-  const police = g.entities.filter((e) => e.role === 'police').length;
+  const ships = g.entities.filter((e) => e.type === 'ship');
+  const hostiles = ships.filter((e) => e.hostile).length;
+  const police = ships.filter((e) => e.role === 'police').length;
+  const peaceful = ships.filter((e) => !e.hostile && e.role !== 'police').length;
   if (g.witchspace) {
     // stranded: only the Thargoids are out here, and they keep coming (#10)
     if (g.spawnTimer <= 0 && hostiles < 3) {
       g.spawnTimer = 12;
       spawnThargoid(g);
     }
-  } else if (g.spawnTimer <= 0 && hostiles < 2) {
+  } else if (g.spawnTimer <= 0) {
     g.spawnTimer = 12;
-    // a wanted commander gets the police on their tail instead of a free spawn
-    if (g.crime > 0 && police === 0) spawnPolice(g);
-    else if (hostiles === 0) spawnPirate(g);
-    // one hostile in three is the alien instead of a pirate
-    else if (Math.random() < 0.6) (Math.random() < 0.33 ? spawnThargoid(g) : spawnPirate(g));
-    if (!g.entities.some((e) => e.role === 'trader') && Math.random() < 0.5) spawnTrader(g);
+    if (hostiles < 2) {
+      // a wanted commander gets the police on their tail instead of a free spawn
+      if (g.crime > 0 && police === 0) spawnPolice(g);
+      else if (hostiles === 0) spawnPirate(g);
+      // one hostile in three is the alien instead of a pirate
+      else if (Math.random() < 0.6) (Math.random() < 0.33 ? spawnThargoid(g) : spawnPirate(g));
+    }
+    if (peaceful < MAX_PEACEFUL) {
+      if (!ships.some((e) => e.role === 'trader')) spawnTrader(g);
+      else spawnPassenger(g);
+    }
   }
 
   // --- shots fade ---------------------------------------------------------
