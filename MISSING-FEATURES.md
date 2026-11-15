@@ -20,6 +20,7 @@ below keep the original description for the record. Items 8–10 closed
 2026-11-15 (branch `iter/travel`), likewise with their original descriptions
 kept below. Items 11–13 closed the same day (branch `iter/space`), likewise.
 Items 14 and 17 closed 2026-11-15 (branch `iter/views`), likewise.
+Items 15, 16 and 18 closed the same day (branch `iter/combat`), likewise.
 
 **Ranking:** P1 = core identity of the game, P2 = universe & travel depth,
 P3 = flight/combat depth, P4 = fidelity polish.
@@ -118,12 +119,12 @@ inside the sun's corona (that half of #11). BOOST does nothing until the
 injectors are bought, and dying with an escape pod docks you at the station
 with the ship and the fitted gear intact but the manifest gone.
 
-**Still open here**: lasers (they need a damage/rate table and a weapon
-priming UI — the port fires one hardcoded beam — and the mining laser also
-needs #12), cloak (needs invisibility rules for NPC targeting plus a readout
-so the player can tell it is on) and passenger berth (needs passengers and
-missions, #7). None of those is a cheap mechanic, so iteration 3 skipped
-them explicitly; the galactic drive closed with #8 on `iter/travel`.
+**Still open here**: cloak (needs invisibility rules for NPC targeting plus a
+readout so the player can tell it is on) and passenger berth (needs
+passengers and missions, #7). Those are not cheap mechanics, so iteration 3
+skipped them explicitly; the galactic drive closed with #8 on `iter/travel`,
+the lasers with #16 on `iter/combat` (the mining laser first with #12 on
+`iter/space`).
 
 ### 6. Real docking and launch
 User note: make it a setup **easy-mode checkbox on the start screen** — off by
@@ -364,10 +365,50 @@ traders to farm their own rating (ZX guide; the Archimedes version took this
 furthest). Port: traders fly straight lines and never engage, only the player
 is ever attacked (`updateNPC()` in `web/src/game.js`).
 
+**Done** (branch `iter/combat`): every ship now picks a foe (`pickFoe()` /
+`engageNPC()` in `web/src/game.js`) — Vipers protect the traffic within 10 km
+while your record is clean and hunt you the moment it is not, Thargoids attack
+everything within 8 km (you, the haulers, the Vipers), and pirates go for
+whatever is closest, you or the shipping, which is the original's rating
+farming. NPC-on-NPC laser fire is amber on the scanner (`shot.npc`), costs the
+victim hull and pays nobody, and a kill nobody made is reported
+(`<SHIP> DESTROYED`) with no bounty and no crime. The peaceful roles get
+flee/engage states of their own: haulers turn tail and run at full speed the
+moment they are hit, and the new **passenger traffic** (`spawnPassenger()` —
+Cobra and Adder shuttles, the Adder's own shipdata roles include `shuttle`)
+runs from a hostile on sight before any shot lands; both give up when the
+threat is 15 km behind and rejoin the traffic. Spawn rules are caps, not
+rolls: at most two hostiles and one hauler plus one shuttle (arrival gives
+one of each), so space feels inhabited without crowding it.
+**shortcut**: no NPC kill rewards, ratings or patrol routes — a ship with
+nobody to fight flies a straight line, the passenger role rides trader hulls
+because the port's 14 meshes ship no liner, and missiles are still only ever
+loosed at the commander.
+
 ### 16. Laser types and mounts
 Original: pulse / burst / mining / military lasers, fore and aft mounts,
 upgrades sold by tech level (Wikipedia equipment list). Port: one fixed
 forward beam laser for everyone.
+
+**Done** (branch `iter/combat`): the player hull carries a **forward** and an
+**aft** mount (`player.weapons` in `web/src/game.js`), starting with the free
+forward Beam Laser. The shop lists the real `equipment.plist` laser rows in
+the plist's own techlevel order — Pulse 4 000 CR, Beam 10 000 CR, Mining
+8 000 CR — each with **FORE** and **AFT** buttons that fit that mount (a mount
+that already holds a laser has it replaced, without a refund) and a note
+reading both mounts out (`fore: Beam · aft: —`). The three weapons keep the
+port's per-shot scale and take their differences from the plist's own
+ordering: beam 60 damage every 0.45 s (+55 heat), pulse 90 every 0.9 s (+70),
+mining 120 every 2.5 s at 12.5 km (+10, so it never overheats and one-shots
+the 100-energy rock). `T` in flight and the **LASER** touch button swap what
+FIRE shoots — forward along the nose or astern from the tail — with the choice
+on a HUD line under the crosshair and the matching `crosshairs.plist` art.
+Saves carry `player.weapons`, validated like `crime`, and a save from before
+the mounts brings its `EQ_WEAPON_*` equipment flag forward onto the forward
+mount. **left open**: the **Military Laser** (60 000 CR) is deliberately not
+sold — at 12 damage every 0.1 s over 30 km it outranges and out-damages
+everything — and there is no "Remove Laser" row, no port/starboard mounts
+(the original has all four facings), and a replaced laser is not sold back.
 
 ### 17. Live instruments
 Original dials that are currently dead or absent in the port
@@ -409,6 +450,24 @@ instead.
 Original: the missile indicator shows unarmed / locked / armed colours and
 missile status at a glance (ZX guide). Port: one standard missile per press,
 no lock-on state (documented `shortcut:` in `web/src/game.js`).
+
+**Done** (branch `iter/combat`): `updateMissileLock()` in `web/src/game.js`
+builds the lock while the reticle holds the target in the forward arc inside
+8 km — 1.5 s of steady aim, reported as `MISSILE LOCKED` — and breaks it when
+the target leaves the arc or is switched (`MISSILE LOCK BROKEN`). A locked
+launch sends the homing missile the port always had; a launch before the lock
+finishes spends the pylon on a **dumbfire** that flies straight and fuses
+against whatever hull it runs into (no target still refuses the launch, as
+before). Incoming missiles get the same states in reverse: they fly blind
+until you have sat in their 60° seeker cone for 1.5 s — turn out of it early
+and they never steer — and once locked they hold, with the ECM sweep as the
+answer. The HUD's missile indicator (`drawMissileDisplay`) reads the whole
+thing out beside the pylon triangles, coloured the way the original's
+indicator does: `UNARMED` (dim), `LOCK n%` (amber), `MISSILE LOCKED` (green),
+`INCOMING — LOCKING` / `INCOMING — LOCKED` (amber / red).
+**left open**: no explicit break-lock key (the lock breaks itself, and the
+ECM takes the inbound one), no missile-vs-missile interception and no pylon
+missile types.
 
 ---
 
