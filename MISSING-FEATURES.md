@@ -19,6 +19,7 @@ same day (branch `iter/docking`); item 7 closed 2026-11-15 (branch
 below keep the original description for the record. Items 8–10 closed
 2026-11-15 (branch `iter/travel`), likewise with their original descriptions
 kept below. Items 11–13 closed the same day (branch `iter/space`), likewise.
+Items 14 and 17 closed 2026-11-15 (branch `iter/views`), likewise.
 
 **Ranking:** P1 = core identity of the game, P2 = universe & travel depth,
 P3 = flight/combat depth, P4 = fidelity polish.
@@ -341,6 +342,22 @@ Original: keys 1–4 give front / aft / left / right views in flight, and every
 version has a cockpit/dashboard frame (ZX guide describes the panel). Port:
 single fixed chase camera, no cockpit (`README.md` lists both as not ported).
 
+**Done** (branch `iter/views`): keys `1`–`4` pick front / aft / port /
+starboard in flight and the **VIEW** touch button cycles them;
+`viewQuat()` in `web/src/render.js` turns the camera about the ship's own
+axes, so the horizon stays right in every attitude while the sim, the laser
+and the target reticle keep running off the ship's nose — the crosshair is
+drawn only in the forward view, the one that points where the laser goes.
+The HUD draws a canopy frame around the view (top bar, side pillars, centre
+bow, all on the HUD canvas — no art assets) that stops above the bottom
+gauge band, so the dials stay clear and, because `#touch` stacks above the
+HUD canvas, the sticks and buttons are never covered; non-forward views
+name themselves under the bow. `?view=aft|port|starboard` starts the
+headless smoke in another view. **left open**: all four views sit at the
+ship's centre (no offset chase camera), the view never rolls independently
+of the ship, and the frame is drawn rather than a textured cockpit interior
+— the original's panel art is still not ported.
+
 ### 15. NPC ecosystem
 Original: police patrol, traders go about their business, other pilots attack
 traders to farm their own rating (ZX guide; the Archimedes version took this
@@ -362,6 +379,31 @@ Original dials that are currently dead or absent in the port
 - **Yellow / flashing alert state** — only green and red are ever set
   (`g.alert` in `web/src/game.js`), though the HUD can draw yellow.
 - **Energy banks 1–4 + "ENERGY LOW"** — single gauge, no warning text.
+
+**Done** (branch `iter/views`): `altitudeFraction` is computed every frame
+from the distance to the planet over Oolite's 40 km
+(`PLAYER_DIAL_MAX_ALTITUDE`) — the planet moved into `web/src/game.js` next
+to the sun so the simulation can know about it — and flying under the
+surface now bounces the ship off, costs 40 hull and says `PLANET IMPACT`.
+Cabin temperature follows upstream's model (`SUN_TEMPERATURE` 1250 ×
+(R/d)², gaining at `SHIP_INSULATION_FACTOR` 0.00175 and leaking at
+`SHIP_COOLING_FACTOR` 0.1, clamped 60…256), so it climbs near the sun,
+sinks back in deep space, and past 256 costs 25 hull twice a second until
+it cools. The alert light gained its yellow state — critical energy
+(< 64 and < 80 % of max), altitude under 10 %, cabin over 90 %, or a
+missile in the air — red still latches for the 6 s after a hit, and the
+light breathes like `drawStatusLight:` upstream (0.333 × (2 + sin(t × 2.5 ×
+condition)), green slow, red fastest). `ENERGY LOW` is pushed once per
+crossing of the critical band, and the altitude, cabin and weapon dials
+take upstream's colour bands (altitude < 0.25 red / < 0.75 yellow, temps
+> 0.80 red / > 0.25 yellow) with the magenta `redplus` flash at the
+critical edge. The energy gauge needed no change: banks 1–4 with E-labels
+were already drawn from `max_energy / 64` (the "single gauge" above was
+wrong) — only the warning text was missing. **left open**: no atmosphere
+terms (friction heat inside the atmosphere, `insideAtmoFrac`), no
+heat-insulation equipment (`heatInsulation`), and no mass-lock or
+hostile-targeting alert flag — the port's yellow uses a missile in the air
+instead.
 
 ### 18. Missile lock states
 Original: the missile indicator shows unarmed / locked / armed colours and

@@ -9,6 +9,16 @@ const GREEN = [0, 1, 0];
 const DARKGREEN = [0, 0.75, 0];
 const BLUE = [0, 0, 1];
 const WHITE = [1, 1, 1];
+// Magenta "critical" flash colour for a dial in its last band (Oolite's
+// redplus_color in HeadUpDisplay.m).
+const REDPLUS = [1, 0, 0.5];
+
+// Height in HUD units of the bottom gauge band: the topmost dial with
+// y_origin = -1 reaches 101 units up from the bottom edge. main.js keeps the
+// touch controls out of the same band, and the cockpit frame stops below it.
+export const BOTTOM_BAND = 101;
+
+const VIEW_LABELS = { aft: 'AFT VIEW', port: 'PORT VIEW', starboard: 'STARBOARD VIEW' };
 
 export class Hud {
   constructor(canvas, assets) {
@@ -211,18 +221,34 @@ export class Hud {
     const defY = which === 'cabin' ? -189 : -199;
     const p = this.place(info, -200, defY, 80, 8);
     const g = this.g;
-    const value = which === 'cabin'
-      ? (g.player.cabinTemp - 60) / (256 - 60)
-      : g.player.weaponTemp / 256;
+    // Oolite's bands (drawTempBar:/drawWeaponTempBar: in HeadUpDisplay.m):
+    // over 0.80 red, over 0.25 yellow — and the cabin dial flashes magenta
+    // past 0.90 while it is cooking.
+    const value = (which === 'cabin' ? g.player.cabinTemp : g.player.weaponTemp) / 256;
     if (info.draw_surround) this.surround(p.x, p.y, p.w, p.h, GREEN, p.a);
-    const col = value > 0.85 ? RED : value > 0.5 ? YELLOW : GREEN;
+    let col = GREEN;
+    if (value > 0.8) col = RED;
+    else if (value > 0.25) col = YELLOW;
+    if (which === 'cabin' && value > 0.9 && this.flashOn()) col = REDPLUS;
     this.bar(p.x, p.y, p.w, p.h, value, col, p.a);
   }
 
   drawAltitudeBar(info) {
     const p = this.place(info, -200, -209, 80, 8);
     if (info.draw_surround) this.surround(p.x, p.y, p.w, p.h, GREEN, p.a);
-    this.bar(p.x, p.y, p.w, p.h, this.g.altitudeFraction, GREEN, p.a);
+    // Oolite's bands (drawAltitudeBar:): under 0.25 red — flashing magenta
+    // under 0.10 — under 0.75 yellow, above that green.
+    const alt = this.g.altitudeFraction;
+    let col = GREEN;
+    if (alt < 0.25) col = RED;
+    else if (alt < 0.75) col = YELLOW;
+    if (alt < 0.1 && this.flashOn()) col = REDPLUS;
+    this.bar(p.x, p.y, p.w, p.h, alt, col, p.a);
+  }
+
+  // The 4 Hz on/off flash of a dial in its critical band: (int)(time*4) & 1.
+  flashOn() {
+    return (Math.floor(this.g.time * 4) & 1) === 1;
   }
 
   // The fuel scoop status dial (HeadUpDisplay.m drawScoopStatus:): three
@@ -301,7 +327,12 @@ export class Hud {
     else if (g.alert === 'yellow') col = YELLOW;
     const ctx = this.ctx;
     const r = this.L(Math.max(p.w, p.h) / 2);
-    ctx.fillStyle = this.rgba(col, p.a);
+    // Flash like HeadUpDisplay.m drawStatusLight: one breath per second at
+    // 0.333 * (2 + sin(time * 2.5 * condition)) — green slow, yellow faster,
+    // red fastest (ALERT_CONDITION_GREEN/YELLOW/RED = 1/2/3).
+    const cond = g.alert === 'red' ? 3 : g.alert === 'yellow' ? 2 : 1;
+    const flash = 0.333 * (2 + Math.sin(g.time * 2.5 * cond));
+    ctx.fillStyle = this.rgba(col, p.a * flash);
     ctx.beginPath();
     ctx.arc(this.X(p.x), this.Y(p.y), r, 0, Math.PI * 2);
     ctx.fill();
@@ -495,7 +526,8 @@ export class Hud {
   // ---- crosshair -----------------------------------------------------------
   drawCrosshair() {
     const g = this.g;
-    if (!g.showCrosshair) return;
+    // only the forward view points where the laser goes (#14)
+    if (!g.showCrosshair || (g.view && g.view !== 'front')) return;
     const scale = this.hud.crosshair_scale || 32;
     const defs = this.crosshairs[g.weaponKey] || this.crosshairs.OTHER;
     if (!defs) return;
@@ -583,6 +615,68 @@ export class Hud {
     }
   }
 
+  // ---- cockpit frame (#14) -------------------------------------------------
+  // A drawn canopy frame around the view — HUD canvas, no art assets. It
+  // hugs the screen edge and stops above the bottom gauge band, so the
+  // dials stay clear; #touch sits above this canvas, so the sticks and
+  // buttons are never covered either.
+  drawCockpitFrame() {
+    const ctx = this.ctx;
+    const w = this.w, h = this.h;
+    const t = Math.max(9, Math.min(26, Math.min(w, h) * 0.022));
+    const bottom = h - BOTTOM_BAND * this.s - 2;
+    // canopy skin: top bar and two pillars — no floor, the dials are the panel
+    ctx.fillStyle = 'rgba(8,14,11,0.55)';
+    ctx.fillRect(0, 0, w, t);
+    ctx.fillRect(0, 0, t, bottom);
+    ctx.fillRect(w - t, 0, t, bottom);
+    const path = () => {
+      ctx.beginPath();
+      ctx.moveTo(t, bottom);
+      ctx.lineTo(t, t);
+      ctx.lineTo(w - t, t);
+      ctx.lineTo(w - t, bottom);
+    };
+    ctx.strokeStyle = 'rgba(150,170,160,0.85)';
+    ctx.lineWidth = Math.max(1, t * 0.25);
+    path();
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(0,255,100,0.30)'; // HUD-green accent inside the edge
+    ctx.lineWidth = Math.max(1, this.L(1.5));
+    path();
+    ctx.stroke();
+    // pillar feet
+    ctx.strokeStyle = 'rgba(150,170,160,0.85)';
+    ctx.lineWidth = Math.max(1, t * 0.25);
+    ctx.beginPath();
+    ctx.moveTo(t, bottom); ctx.lineTo(t + t * 1.8, bottom);
+    ctx.moveTo(w - t, bottom); ctx.lineTo(w - t - t * 1.8, bottom);
+    ctx.stroke();
+    // the canopy bow over the top centre
+    const bw = t * 4, bh = t * 1.3;
+    ctx.fillStyle = 'rgba(8,14,11,0.55)';
+    ctx.beginPath();
+    ctx.moveTo(w / 2 - bw / 2, 0);
+    ctx.lineTo(w / 2 + bw / 2, 0);
+    ctx.lineTo(w / 2 + bw / 2 - t * 0.7, t + bh);
+    ctx.lineTo(w / 2 - bw / 2 + t * 0.7, t + bh);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    // which way you are looking, when it is not the forward view
+    const label = VIEW_LABELS[this.g.view];
+    if (label) {
+      ctx.font = `bold ${Math.max(11, this.L(11))}px "Courier New", monospace`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.shadowColor = 'rgba(0,0,0,0.85)';
+      ctx.shadowBlur = 4;
+      ctx.fillStyle = this.rgba(GREEN, 0.95);
+      ctx.fillText(label, w / 2, t + bh + 4);
+      ctx.shadowBlur = 0;
+    }
+  }
+
   // ---- entry point ---------------------------------------------------------
   draw(game) {
     this.g = game;
@@ -591,6 +685,7 @@ export class Hud {
     ctx.clearRect(0, 0, this.w, this.h);
     if (!game.hudVisible) return;
 
+    this.drawCockpitFrame();
     this.drawCrosshair();
     this.drawLegends();
     for (const info of this.hud.dials || []) {

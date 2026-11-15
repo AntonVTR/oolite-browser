@@ -86,6 +86,13 @@ gyro, keyboard/mouse and gamepad.
   rocks. Broken rocks pay a 10 CR bounty and release ore canisters — minerals,
   gold, platinum or gem-stones — for the scoops to collect and the market to
   buy.
+- **Views and live instruments**: `1`–`4` (or the **VIEW** button) switch the
+  front, aft, port and starboard views inside a canopy frame drawn on the HUD
+  canvas — the crosshair only shows in the view that points where the laser
+  fires — and the dials are fed for real: altitude that fills over 40 km and
+  hurts when you fly into the planet, a cabin temperature that cooks you near
+  the sun, the yellow/red alert light with its warning states, and the
+  `ENERGY LOW` warning.
 
 ## Not ported yet
 
@@ -100,7 +107,8 @@ gyro, keyboard/mouse and gamepad.
   while the other laser types, cloak, passenger berth and the rest are not
   modelled — plus ship AI scripts
   (`.js`), mines and missile-vs-missile interception.
-- Cockpit view, real sun/planet textures (both are shaded spheres), wormholes.
+- Real sun/planet textures (both are shaded spheres), a textured cockpit
+  interior (the HUD draws a canopy frame instead), wormholes.
 
 ## Controls
 
@@ -118,6 +126,7 @@ gyro, keyboard/mouse and gamepad.
 | Jump | `J` | JUMP | Y |
 | Chart (pick jump target) | `C` | CHART | — |
 | Status screen (in flight) | `5` | STATUS | — |
+| View: front / aft / port / starboard | `1` `2` `3` `4` | VIEW (cycles) | — |
 | Scanner zoom | `Z` / `Shift+Z` | tap the radar | — |
 | Gyro steering | `G` | GYRO | — |
 | Fullscreen | `F11` (browser) | FULL | — |
@@ -190,6 +199,7 @@ node tests/test-travel.mjs    # galactic hyperspace and witchspace: crossing, st
 node tests/test-scoop.mjs     # fuel scooping: canisters, escape capsules, the scoop dial
 node tests/test-mining.mjs    # asteroids, the mining laser, ore that pays at the market
 node tests/test-dodo.mjs      # planetinfo picks Coriolis vs Dodo, and the Dodo docks
+node tests/test-instruments.mjs  # live instruments: altitude/impact, cabin heat, alert ladder
 python3 -m http.server 8099 --directory web   # local server
 # headless smoke test (console errors + screenshots):
 google-chrome --headless=new --virtual-time-budget=6000 --screenshot=/tmp/shot.png \
@@ -225,6 +235,10 @@ google-chrome --headless=new --enable-logging=stderr --virtual-time-budget=8000 
 google-chrome --headless=new --enable-logging=stderr --virtual-time-budget=6000 \
   --user-data-dir=/tmp/oolite-dodo --screenshot=/tmp/dodo.png \
   'http://127.0.0.1:8099/?autostart=1&dodo=1' 2>&1 | grep CONSOLE
+# another view with the cockpit frame around it, console-clean (#14):
+google-chrome --headless=new --enable-logging=stderr --virtual-time-budget=6000 \
+  --user-data-dir=/tmp/oolite-view --screenshot=/tmp/view.png \
+  'http://127.0.0.1:8099/?autostart=1&view=aft' 2>&1 | grep CONSOLE
 ```
 
 `tools/copy-assets.sh` copies the used subset of `upstream/Resources` into

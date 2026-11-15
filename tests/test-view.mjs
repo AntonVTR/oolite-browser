@@ -60,4 +60,98 @@ for (const c of cases) {
   assert.ok(Math.hypot(origin[0], origin[1], origin[2]) < 1e-3, `${c.name}: camera sits at the view origin`);
 }
 
+// ---- changeable views (#14) ------------------------------------------------
+const { viewQuat } = await import(join(root, 'web/src/render.js'));
+const { setView, cycleView, VIEWS } = await import(join(root, 'web/src/game.js'));
+
+// selector state: setView only accepts real views, cycleView walks all four
+const sel = { view: 'front' };
+setView(sel, 'aft');
+assert.strictEqual(sel.view, 'aft', 'setView switches');
+setView(sel, 'nonsense');
+assert.strictEqual(sel.view, 'aft', 'setView ignores an unknown view');
+const seen = [];
+for (let i = 0; i < 4; i++) { cycleView(sel); seen.push(sel.view); }
+assert.deepStrictEqual(seen, ['port', 'starboard', 'front', 'aft'], 'cycle wraps through all four');
+assert.deepStrictEqual(VIEWS, ['front', 'aft', 'port', 'starboard'], 'the original key order');
+
+// Every view must look the right way from every attitude: the camera's
+// forward (what buildView aims along) points at the expected ship direction,
+// up stays up, and the map stays orthonormal.
+const viewCases = [
+  { quat: [0, 0, 0, 1], name: 'level' },
+  { quat: quatNormalize(quatAxisAngle(0, 1, 0, Math.PI / 3)), name: 'yawed' },
+  { quat: quatNormalize(quatAxisAngle(1, 0, 0, -Math.PI / 5)), name: 'pitched' },
+  { quat: quatNormalize(quatAxisAngle(0, 0, 1, Math.PI / 2.5)), name: 'rolled' },
+];
+const expect = (view, quat) => {
+  const nose = quatRotate(quat, [0, 0, 1]);
+  const starboard = quatRotate(quat, [1, 0, 0]);
+  return {
+    front: nose,
+    aft: [-nose[0], -nose[1], -nose[2]],
+    port: [-starboard[0], -starboard[1], -starboard[2]],
+    starboard,
+  }[view];
+};
+const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+for (const c of viewCases) {
+  for (const view of VIEWS) {
+    const cam = viewQuat(view, c.quat);
+    const want = expect(view, c.quat);
+    const dir = quatRotate(cam, [0, 0, 1]);
+    assert.ok(dot(dir, want) > 1 - 1e-6, `${c.name}/${view}: camera looks the right way`);
+    const up = quatRotate(cam, [0, 1, 0]);
+    const shipUp = quatRotate(c.quat, [0, 1, 0]);
+    assert.ok(dot(up, shipUp) > 1 - 1e-6, `${c.name}/${view}: up stays up`);
+
+    // through the real view matrix: the wanted direction is in front of GL
+    const m = buildView(new Float32Array(16), [0, 0, 0], cam);
+    const v = rotate(m, want);
+    assert.ok(v[2] < -1e-6, `${c.name}/${view}: wanted direction in front (z < 0)`);
+    // side views frame the nose the way a head turn would: looking left, the
+    // nose sits off to your right; looking right, it is off to your left
+    if (view === 'starboard') assert.ok(rotate(m, quatRotate(c.quat, [0, 0, 1]))[0] < -1e-6,
+      `${c.name}/starboard: nose off to screen left`);
+    if (view === 'port') assert.ok(rotate(m, quatRotate(c.quat, [0, 0, 1]))[0] > 1e-6,
+      `${c.name}/port: nose off to screen right`);
+    if (view === 'aft') assert.ok(rotate(m, quatRotate(c.quat, [1, 0, 0]))[0] < -1e-6,
+      `${c.name}/aft: starboard flips to screen left`);
+  }
+}
+
+// ---- cockpit frame (#14) ---------------------------------------------------
+// Drawn on the HUD canvas: it must not throw, must stop above the bottom
+// gauge band, and must name the view when it is not the forward one.
+const { Hud, BOTTOM_BAND } = await import(join(root, 'web/src/hud.js'));
+const drawLog = [];
+const hudCtx = new Proxy({}, {
+  get: (t, k) => (k in t ? t[k] : (...a) => { drawLog.push([k, ...a]); }),
+  set: (t, k, v) => { t[k] = v; return true; },
+});
+const hud = new Hud({ width: 0, height: 0, getContext: () => hudCtx },
+  { plists: { hud: {}, crosshairs: {} } });
+hud.resize(800, 600, 1);
+const fake = (view) => ({
+  hudVisible: true, view, showCrosshair: false, target: null, time: 0,
+});
+
+hud.draw(fake('front'));
+const rects = drawLog.filter((c) => c[0] === 'fillRect');
+assert.ok(rects.length >= 3, 'frame draws the top bar and both pillars');
+for (const r of rects) {
+  assert.ok(r[2] + r[4] <= 600 - BOTTOM_BAND * hud.s + 1e-6,
+    `frame element stops above the gauge band (got bottom ${r[2] + r[4]})`);
+}
+assert.ok(!drawLog.some((c) => c[0] === 'fillText'), 'forward view needs no label');
+
+drawLog.length = 0;
+hud.draw(fake('aft'));
+assert.ok(drawLog.some((c) => c[0] === 'fillText' && c[1] === 'AFT VIEW'),
+  'aft view names itself under the canopy bow');
+
+drawLog.length = 0;
+hud.draw({ ...fake('aft'), hudVisible: false });
+assert.ok(!drawLog.some((c) => c[0] === 'fillRect'), 'no frame without a HUD');
+
 console.log('view: all checks passed');

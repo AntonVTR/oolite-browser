@@ -1,8 +1,8 @@
 // Browser entry point: loads Oolite's real assets, builds GPU resources and
 // runs the loop (input → game.js → renderer → HUD → audio).
 
-import { Renderer } from './render.js';
-import { Hud } from './hud.js';
+import { Renderer, viewQuat } from './render.js';
+import { Hud, BOTTOM_BAND } from './hud.js';
 import { GameAudio } from './audio.js';
 import { setupKeyboard, setupMouse, setupGamepad, updateCtrl } from './controls.js';
 import { setupTouchControls, clearTouchEdges, syncThrottleKnob } from './touch.js';
@@ -11,7 +11,8 @@ import {
   createGame, stepGame, launch, launchTrip, marketFor, buyGood, sellGood, cargoUsed,
   shipyardFor, tradeInValue, buyShip, shipName, zoomScanner, jump,
   equipmentFor, buyEquipment, spawnThargoid, systemsIn, rankName, legalStatus,
-  pushMessage, spawnStation, SUN_POS, SUN_R,
+  pushMessage, spawnStation, SUN_POS, SUN_R, PLANET_POS, PLANET_R,
+  setView, cycleView,
 } from './game.js';
 import { galaxySystems } from './galaxy.js';
 import { missionView, acceptMission } from './missions.js';
@@ -25,10 +26,9 @@ const el = (id) => document.getElementById(id);
 const glCanvas = el('gl');
 const hudCanvas = el('hud');
 
-const PLANET_POS = [0, 6000, 62000];
-const PLANET_R = 9000;
 // The sun sits behind and above the launch heading so ships ahead are lit, as
-// in Elite. Its position and radius live in game.js — the fuel scoops skim it.
+// in Elite. Its position and radius live in game.js — the fuel scoops skim it,
+// and the altitude dial measures against the planet that lives there too.
 
 let renderer, hud, audio, assets, game;
 let stars, sphereGpu, gpu = {}, meshTex = {};
@@ -142,7 +142,9 @@ function drawEntity(e) {
 
 function renderScene() {
   const p = game.player;
-  renderer.beginFrame(p.pos, p.quat);
+  // The view direction (#14) turns the camera about the ship's axes; the
+  // sim, the laser and the target logic all stay on the ship's nose.
+  renderer.beginFrame(p.pos, viewQuat(game.view, p.quat));
   const sunDir = renderer.sunDirView(SUN_POS);
 
   renderer.drawStars(stars);
@@ -199,7 +201,9 @@ function updateTargetReticle() {
   if (!t) { game.target = null; return; }
   const a = project(t.pos);
   if (!a) { t.onScreen = false; return; }
-  const right = quatRotate(game.player.quat, [1, 0, 0]);
+  // radius estimate along the camera's own starboard, so the box keeps its
+  // size in the side and aft views too
+  const right = quatRotate(renderer.camQuat, [1, 0, 0]);
   const b = project(add(t.pos, vscale(right, t.radius)));
   const w = glCanvas.clientWidth, h = glCanvas.clientHeight;
   t.onScreen = a.x > -0.15 && a.x < 1.15 && a.y > -0.15 && a.y < 1.15;
@@ -425,12 +429,12 @@ function resize() {
   renderer.resize(w, h, dpr);
   hud.resize(w, h, dpr);
 
-  // Measure the HUD's corner gauge blocks (same maths as hud.js: hud.plist
-  // dials with y_origin=-1 reach 101 units up, legends/bars 279/278 units in)
-  // so the touch controls can be laid out clear of them: --stick-b /
-  // --buttons-b is the bottom offset that keeps a control out of that band.
+  // Measure the HUD's corner gauge blocks (the band hud.js draws its bottom
+  // dials into, BOTTOM_BAND units up from the edge) so the touch controls can
+  // be laid out clear of them: --stick-b / --buttons-b is the bottom offset
+  // that keeps a control out of that band.
   const s = Math.min(w / 640, h / 480);
-  const bandB = 101 * s; // band height from the bottom edge
+  const bandB = BOTTOM_BAND * s; // band height from the bottom edge
   const colL = w / 2 - 279 * s;   // free width left of the band
   const colR = w - (w / 2 + 278 * s); // free width right of it
   const root = document.documentElement.style;
@@ -613,12 +617,31 @@ async function main() {
   });
   el('touch').querySelector('.buttons').insertBefore(btnStatus, el('btnFire'));
 
+  // VIEW button beside them: cycles front → aft → port → starboard, the
+  // touch twin of the 1–4 keys (#14).
+  const btnView = document.createElement('button');
+  btnView.id = 'btnView';
+  btnView.className = 'ctl';
+  btnView.textContent = 'VIEW';
+  btnView.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    if (game.phase === 'flight') cycleView(game);
+  });
+  el('touch').querySelector('.buttons').insertBefore(btnView, el('btnFire'));
+
   window.addEventListener('keydown', (e) => {
     if (e.repeat) return; // one press, one action — holding C must not flicker the chart
     if (e.code === 'KeyJ') jumpRequested = true;
     if (e.code === 'KeyZ') zoomScanner(game, e.shiftKey ? -1 : 1); // Oolite z / Z
     if (e.code === 'KeyC') toggleChartUI(); // Oolite F is full throttle here
     if (e.code === 'Digit5') toggleStatusUI(); // Oolite's status-screen key
+    // view keys 1–4: front / aft / left / right, in flight (#14)
+    if (game.phase === 'flight') {
+      if (e.code === 'Digit1') setView(game, 'front');
+      if (e.code === 'Digit2') setView(game, 'aft');
+      if (e.code === 'Digit3') setView(game, 'port');
+      if (e.code === 'Digit4') setView(game, 'starboard');
+    }
     if (e.code === 'Escape') { closeChart(); closeStatus(); closeSlots(); }
   });
 
@@ -665,6 +688,8 @@ async function main() {
     // ?zoom=N sets the scanner zoom (headless smoke test for the radar zoom)
     const z = Number(query.get('zoom'));
     if (query.has('zoom') && z >= 1 && z <= 5) game.scannerZoom = Math.round(z);
+    // ?view=aft|port|starboard starts in another view (headless smoke, #14)
+    if (query.has('view')) setView(game, query.get('view'));
     // ?thargoid puts the alien warship ahead of the nose (headless smoke test)
     if (query.has('thargoid')) spawnThargoid(game);
     // ?chart opens the short-range chart, ?chart=long the whole galaxy (#9)

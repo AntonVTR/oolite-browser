@@ -442,6 +442,24 @@ function damageRock(g, rock, amount) {
 // too. Distance is measured from the sun's centre.
 export const SUN_POS = [-30000, 25000, -50000];
 export const SUN_R = 9000;
+// The system's one planet (drawn by main.js): the body the altitude dial
+// measures against and the thing you can fly into (#17).
+export const PLANET_POS = [0, 6000, 62000];
+export const PLANET_R = 9000;
+// Oolite's dial top: 40 km above the surface reads full (PLAYER_DIAL_MAX_
+// ALTITUDE in PlayerEntity.h).
+const DIAL_MAX_ALTITUDE = 40000;
+// Cabin temperature (#17): upstream's model — the sun's heat falls off with
+// the square of the distance (SUN_TEMPERATURE * (R/d)^2), the cabin gains it
+// at SHIP_INSULATION_FACTOR and leaks it at SHIP_COOLING_FACTOR
+// (ShipEntity.h). shortcut: no atmosphere term and no heat-insulation gear;
+// every ship here insulates at 1.0, so skimming is what cooks you.
+const SUN_TEMPERATURE = 1250;
+const SHIP_MIN_CABIN_TEMP = 60;
+const SHIP_MAX_CABIN_TEMP = 256;
+const SHIP_INSULATION_FACTOR = 0.00175;
+const SHIP_COOLING_FACTOR = 0.1;
+const HEAT_THRESHOLD = 100; // heatInsulation × 100, insulation 1.0
 const SUN_CORONA = SUN_R * 1.5; // scoop range from the centre, metres
 const SCOOP_RATE = 20;          // fuel units (0.1 ly) per second while skimming
 // Cargo pickup range for EQ_FUEL_SCOOPS: a canister this close ahead of the
@@ -461,6 +479,7 @@ export function createGame(assets) {
     hudVisible: false,
     scannerZoom: 1, // radar zoom, 1×…5× (SCANNER_ZOOM_LEVELS)
     showCrosshair: true,
+    view: 'front', // camera view (#14): front | aft | port | starboard
     weaponsOnline: true,
     weaponKey: 'WEAPON_BEAM_LASER',
     systemIndex: 7, // Lave — the classic starting system
@@ -479,7 +498,7 @@ export function createGame(assets) {
     compass: null,
     scannerEntities: () => [],
     playerRel: new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1]),
-    altitudeFraction: 0,
+    altitudeFraction: 1, // metres above the planet over 40 km, 0..1 (#17)
     dialSpeed: 0,
     dialRoll: 0,
     dialPitch: 0,
@@ -515,6 +534,8 @@ export function createGame(assets) {
     weaponTemp: 0,
     weaponOffline: 0,
     shieldCooldown: 0,
+    heatTick: 0,      // seconds until the next overheat hit may land (#17)
+    energyLow: false, // the ENERGY LOW warning was already said (#17)
     dockHint: 0,
     easyDock: false,  // start-screen checkbox: assisted docking (off = real, #6)
     launchSeq: 0,     // seconds left of the launch trip (0 = not riding one)
@@ -566,6 +587,20 @@ export function createGame(assets) {
 
 export function cargoUsed(g) {
   return Object.values(g.player.cargo).reduce((s, v) => s + v, 0);
+}
+
+// ---- views (#14) -----------------------------------------------------------
+// The original's four view directions (keys 1–4). This is only the selector;
+// the camera turn itself is render.js viewQuat(), applied on top of the
+// ship's own attitude so every view keeps the horizon where it belongs.
+export const VIEWS = ['front', 'aft', 'port', 'starboard'];
+
+export function setView(g, v) {
+  if (VIEWS.includes(v)) g.view = v;
+}
+
+export function cycleView(g) {
+  g.view = VIEWS[(VIEWS.indexOf(g.view) + 1) % VIEWS.length];
 }
 
 // Scanner zoom, 1×…5× — Oolite's z / Z keys (SCANNER_ZOOM_LEVELS 5). dir +1
@@ -1677,12 +1712,47 @@ export function stepGame(g, input, dt) {
   const ez = quatRotate(p.quat, [0, 0, 1]);
   g.playerRel.set([ex[0], ex[1], ex[2], ey[0], ey[1], ey[2], ez[0], ez[1], ez[2]]);
 
+  // --- altitude and the planet (#17) ----------------------------------------
+  // The dial shows metres above the surface over 40 km (Oolite's
+  // PLAYER_DIAL_MAX_ALTITUDE). Under the surface the ship bounces off like
+  // any other collision and pays hull for it — flying into the planet now
+  // hurts instead of doing nothing.
+  const alt = dist(p.pos, PLANET_POS) - PLANET_R;
+  g.altitudeFraction = Math.max(0, Math.min(1, alt / DIAL_MAX_ALTITUDE));
+  if (alt < 0 && g.hitCooldown <= 0) {
+    const away = norm(sub(p.pos, PLANET_POS));
+    p.pos = add(PLANET_POS, scale(away, PLANET_R + p.radius + 1));
+    p.speed *= 0.3;
+    pushMessage(g, 'PLANET IMPACT', RED, 4);
+    damagePlayer(g, 40);
+    g.hitCooldown = 1.5;
+    if (g.phase !== 'flight') return g;
+  }
+
+  // --- cabin temperature (#17) ----------------------------------------------
+  // Near the sun the cabin cooks, far from it it sinks back to its 60
+  // minimum. Past 256 the crew pays for it: one hit twice a second until
+  // the cabin gets back under the limit.
+  const sunD = dist(p.pos, SUN_POS) || 1;
+  const external = SUN_TEMPERATURE * (SUN_R * SUN_R) / (sunD * sunD);
+  if (external > HEAT_THRESHOLD && external > p.cabinTemp) {
+    p.cabinTemp += (external - p.cabinTemp) * SHIP_INSULATION_FACTOR * dt;
+  } else if (p.cabinTemp > SHIP_MIN_CABIN_TEMP) {
+    p.cabinTemp = Math.max(SHIP_MIN_CABIN_TEMP,
+      p.cabinTemp + (external - HEAT_THRESHOLD - p.cabinTemp) * SHIP_COOLING_FACTOR * dt);
+  }
+  if (g.heatTick > 0) g.heatTick -= dt;
+  if (p.cabinTemp > SHIP_MAX_CABIN_TEMP && g.heatTick <= 0) {
+    damagePlayer(g, 25);
+    g.heatTick = 0.5;
+    if (g.phase !== 'flight') return g;
+  }
+
   // --- shields / energy / temperature -------------------------------------
   g.shieldCooldown -= dt;
   if (g.shieldCooldown <= 0) {
     p.fwdShield = Math.min(p.maxShield, p.fwdShield + 8 * dt);
     p.aftShield = Math.min(p.maxShield, p.aftShield + 8 * dt);
-    g.alert = 'green';
   }
   let recharge = def(g, 'cobra3').energy_recharge_rate || 4;
   if (g.hasEquipment('EQ_ENERGY_UNIT')) recharge *= ENERGY_RECHARGE_MULT;
@@ -1696,6 +1766,21 @@ export function stepGame(g, input, dt) {
     }
   }
   p.weaponTemp = g.weaponTemp;
+
+  // --- alert state (#17) ----------------------------------------------------
+  // Oolite's ladder (PlayerEntity alertCondition): red while the shields
+  // still remember a hit, yellow while any warning flag is up — energy
+  // critical, low altitude, the cabin cooking, a missile in the air —
+  // green otherwise. The ENERGY LOW line is said once per crossing, the way
+  // the upstream AI says it, not every frame.
+  const energyCritical = p.energy < 64 && p.energy < p.maxEnergy * 0.8;
+  if (energyCritical && !g.energyLow) pushMessage(g, 'ENERGY LOW', RED, 6);
+  g.energyLow = energyCritical;
+  const warning = energyCritical
+    || g.altitudeFraction < 0.10
+    || p.cabinTemp > SHIP_MAX_CABIN_TEMP * 0.9
+    || g.missiles.some((m) => m.hostile);
+  g.alert = g.shieldCooldown > 0 ? 'red' : warning ? 'yellow' : 'green';
 
   // --- fuel scooping -------------------------------------------------------
   // EQ_FUEL_SCOOPS: fly into the sun's corona and the scoops drink straight
