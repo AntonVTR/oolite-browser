@@ -5,7 +5,7 @@
 // Units are Oolite's: metres, seconds, degrees-ish rates in rad/s.
 
 import {
-  quatMul, quatAxisAngle, quatNormalize, quatRotate,
+  quatMul, quatAxisAngle, quatNormalize, quatRotate, quatFromBasis,
   norm, sub, add, scale, dot, cross, len, dist,
 } from './math.js';
 import { makeGalaxy, distanceLy } from './galaxy.js';
@@ -307,6 +307,9 @@ export function createGame(assets) {
     shieldCooldown: 0,
     dockHint: 0,
     easyDock: false,  // start-screen checkbox: assisted docking (off = real, #6)
+    launchSeq: 0,     // seconds left of the launch trip (0 = not riding one)
+    launchT: 0,       // position along the launch path, 0..1
+    launchLen: 0,     // length of the launch path, metres
     dockPhase: 0,     // docking computer's approach phase (real mode, #6)
     dockSwing: null,  // frozen side vector for the autopilot's swing wide
     hitCooldown: 0,   // seconds until the station may hurt you again
@@ -684,6 +687,59 @@ export function dock(g) {
   pushMessage(g, `DOCKED AT ${SYSTEMS[g.systemIndex].name}`, GREEN, 6);
 }
 
+// The launch trip (MISSING-FEATURES #6): ten seconds riding out through the
+// station's force-field sleeve on a fixed path instead of teleporting. The
+// path lives in the station's frame — it turns with the slot it leaves — and
+// ends framed the way the old launch framed you: station ahead of the nose,
+// offset far enough aside that the flight path clears the hull.
+const LAUNCH_TIME = 10; // seconds from the tube to open space
+const LAUNCH_PATH = [
+  [0, 0, 300],      // inside the station, at the slot
+  [0, 0, 1100],     // straight out along the tube
+  [-1200, 0, 3300], // swing wide so the path clears the hull
+  [-1200, 0, 2400], // framed: station ahead-left of the nose, 1200 m of clearance
+];
+
+// Cubic Bezier on the path's control points, and its derivative.
+function bez(P, t) {
+  const u = 1 - t;
+  return add(
+    add(scale(P[0], u * u * u), scale(P[1], 3 * u * u * t)),
+    add(scale(P[2], 3 * u * t * t), scale(P[3], t * t * t)),
+  );
+}
+function bezDeriv(P, t) {
+  const u = 1 - t;
+  return add(
+    add(scale(sub(P[1], P[0]), 3 * u * u), scale(sub(P[2], P[1]), 6 * u * t)),
+    scale(sub(P[3], P[2]), 3 * t * t),
+  );
+}
+function curveLength(P, samples) {
+  let total = 0;
+  let prev = bez(P, 0);
+  for (let i = 1; i <= samples; i++) {
+    const cur = bez(P, i / samples);
+    total += dist(prev, cur);
+    prev = cur;
+  }
+  return total;
+}
+
+// Hand over to ordinary flight, with the framing values the old launch used.
+function finishLaunch(g) {
+  g.launchSeq = 0;
+  g.player.speed = 150;
+  g.player.throttle = 0.45;
+  pushMessage(g, 'LAUNCHED — GOOD LUCK, COMMANDER', GREEN, 6);
+  if (!g.entities.some((e) => e.type === 'ship' && e.hostile)) spawnPirate(g);
+  // Entities survive docking, so an unguarded spawn would stack one more
+  // viper on every dock/launch cycle — same guard as the pirate above.
+  if (!g.entities.some((e) => e.role === 'police')) spawnPolice(g);
+}
+
+// Instant launch: teleport onto the launch framing and fly on. Tests, the
+// smokes and ?autostart use it; the UI buttons take the ten-second ride.
 export function launch(g) {
   const st = g.station;
   // Start off to one side so the station drifts past ahead of the canopy.
@@ -691,15 +747,57 @@ export function launch(g) {
   // be seen; the lateral offset also means the flight path clears it by ~500 m.
   g.player.pos = [st.pos[0] + 1200, st.pos[1], st.pos[2] - 2966];
   g.player.quat = [0, 0, 0, 1];
-  g.player.speed = 150;
-  g.player.throttle = 0.45;
   g.phase = 'flight';
   g.hudVisible = true;
-  pushMessage(g, 'LAUNCHED — GOOD LUCK, COMMANDER', GREEN, 6);
-  if (!g.entities.some((e) => e.type === 'ship' && e.hostile)) spawnPirate(g);
-  // Entities survive docking, so an unguarded spawn would stack one more
-  // viper on every dock/launch cycle — same guard as the pirate above.
-  if (!g.entities.some((e) => e.role === 'police')) spawnPolice(g);
+  finishLaunch(g);
+}
+
+// The watched launch: stepGame rides g.launchSeq down, then finishLaunch
+// takes over. The player watches; the stick and every other input are dead.
+export function launchTrip(g) {
+  const st = g.station;
+  g.phase = 'flight';
+  g.hudVisible = true;
+  g.compass = st;
+  g.launchSeq = LAUNCH_TIME;
+  g.launchT = 0;
+  g.launchLen = curveLength(LAUNCH_PATH, 128);
+  const p = g.player;
+  p.pos = add(st.pos, bez(LAUNCH_PATH, 0));
+  const up = quatRotate(st.quat, [0, 1, 0]);
+  const fwd = quatRotate(st.quat, norm(bezDeriv(LAUNCH_PATH, 0)));
+  p.quat = quatFromBasis(cross(up, fwd), up, fwd);
+  p.speed = g.launchLen / LAUNCH_TIME;
+  p.throttle = Math.min(1, p.speed / p.maxSpeed);
+}
+
+// One frame of the ride: the station turns under the ship, the ship rides
+// the path at a constant speed (arc length / time), and nothing can hurt it
+// until finishLaunch hands the controls back.
+function stepLaunch(g, dt) {
+  const st = g.station;
+  const p = g.player;
+  st.quat = quatNormalize(quatMul(quatAxisAngle(0, 1, 0, st.spin * dt), st.quat));
+  g.launchSeq -= dt;
+  const ds = (g.launchLen / LAUNCH_TIME) * dt;
+  const d = bezDeriv(LAUNCH_PATH, g.launchT);
+  g.launchT = Math.min(1, g.launchT + ds / (len(d) || 1));
+  p.pos = add(st.pos, quatRotate(st.quat, bez(LAUNCH_PATH, g.launchT)));
+  const up = quatRotate(st.quat, [0, 1, 0]);
+  const fwd = quatRotate(st.quat, norm(bezDeriv(LAUNCH_PATH, g.launchT)));
+  p.quat = quatFromBasis(cross(up, fwd), up, fwd);
+  p.vel = scale(fwd, p.speed);
+
+  // The HUD plumbing stepGame normally does, on the far side of its return.
+  g.dialSpeed = p.maxSpeed ? p.speed / p.maxSpeed : 0;
+  const ex = quatRotate(p.quat, [1, 0, 0]);
+  const ey = quatRotate(p.quat, [0, 1, 0]);
+  const ez = quatRotate(p.quat, [0, 0, 1]);
+  g.playerRel.set([ex[0], ex[1], ex[2], ey[0], ey[1], ey[2], ez[0], ez[1], ez[2]]);
+  for (const m of g.messages) m.life -= dt;
+  g.messages = g.messages.filter((m) => m.life > 0);
+  g.scannerEntities = () => g.entities;
+  if (g.launchSeq <= 0) finishLaunch(g);
 }
 
 // selected: a system index from the short-range chart; without one the jump
@@ -1121,6 +1219,10 @@ export function stepGame(g, input, dt) {
   if (g.phase === 'title') return g;
   g.time += dt;
   if (g.hitCooldown > 0) g.hitCooldown -= dt;
+
+  // The launch trip (MISSING-FEATURES #6) runs itself: ten seconds of tube,
+  // input ignored, nothing can hurt the ship — then finishLaunch hands over.
+  if (g.launchSeq > 0) { stepLaunch(g, dt); return g; }
 
   // one-shot inputs
   if (input.jump) jump(g);

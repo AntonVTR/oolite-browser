@@ -9,14 +9,14 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const { parsePlist } = await import(join(root, 'web/src/plist.js'));
 const { parseMesh } = await import(join(root, 'web/src/mesh.js'));
 const { SHIP_DEFS, resolveTextureName } = await import(join(root, 'web/src/assets.js'));
-const { createGame, stepGame, launch, marketFor, buyGood, sellGood, cargoUsed, jump, SYSTEMS,
+const { createGame, stepGame, launch, launchTrip, marketFor, buyGood, sellGood, cargoUsed, jump, SYSTEMS,
   spawnPirate, spawnTrader, spawnThargoid, shipyardFor, tradeInValue, buyShip, zoomScanner,
   launchMissile, activateECM, equipmentFor, buyEquipment, missileCap, rankName,
   legalStatus, addCrime, spawnPolice, SUN_POS } =
   await import(join(root, 'web/src/game.js'));
 const { Hud } = await import(join(root, 'web/src/hud.js'));
 const { distanceLy } = await import(join(root, 'web/src/galaxy.js'));
-const { quatRotate } = await import(join(root, 'web/src/math.js'));
+const { quatRotate, quatConjugate } = await import(join(root, 'web/src/math.js'));
 
 const read = (p) => readFileSync(join(root, 'web/assets', p), 'utf8');
 const shipdata = parsePlist(read('config/shipdata.plist'));
@@ -771,5 +771,29 @@ easyFast.player.pos = [0, 0, 1000]; // inside the 1500 m DOCK range
 easyFast.player.speed = 300;
 stepGame(easyFast, { dockRequest: true }, 1 / 60);
 assert.strictEqual(easyFast.phase, 'flight', 'a hot DOCK request is refused');
+
+// ---- the launch ride (#6) --------------------------------------------------
+// Ten seconds in the tube, then the old launch framing: the ship ends at the
+// path's end in the station frame, nose back along the path with the station
+// ahead of it, at the launch speed and throttle.
+const trip = createGame(assets);
+launchTrip(trip);
+assert.ok(trip.launchSeq > 9, 'the ride starts with ten seconds to go');
+assert.strictEqual(trip.phase, 'flight', 'and the ship is already in flight');
+for (let i = 0; i < 610 && trip.launchSeq > 0; i++) stepGame(trip, noInput(), 1 / 60);
+assert.strictEqual(trip.launchSeq, 0, 'the ride ends after ten seconds');
+assert.ok(trip.messages.some((m) => m.text.startsWith('LAUNCHED')), 'and says LAUNCHED');
+assert.strictEqual(trip.player.speed, 150, 'hands over at the launch speed');
+assert.strictEqual(trip.player.throttle, 0.45, 'and the launch throttle');
+const stPos = trip.station.pos;
+const stInv = quatConjugate(trip.station.quat);
+const local = quatRotate(stInv, [
+  trip.player.pos[0] - stPos[0], trip.player.pos[1] - stPos[1], trip.player.pos[2] - stPos[2],
+]);
+assert.ok(Math.abs(local[0] + 1200) < 1 && Math.abs(local[1]) < 1 && Math.abs(local[2] - 2400) < 1,
+  'ends at the launch framing point, offset to clear the hull');
+const tripNose = quatRotate(stInv, quatRotate(trip.player.quat, [0, 0, 1]));
+assert.ok(tripNose[2] < -0.99 && Math.abs(tripNose[0]) < 0.01,
+  'with the nose back along the path, station ahead of it');
 
 console.log('game: all checks passed');

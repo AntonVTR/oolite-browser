@@ -56,6 +56,43 @@ export function quatRotate(q, v) {
   ];
 }
 
+// Orientation whose ship-local axes (right, up, fwd) point along the given
+// world vectors — the launch ride builds one from the tube's tangent each
+// frame so the canopy looks where the path goes.
+export function quatFromBasis(right, up, fwd) {
+  const m00 = right[0], m01 = up[0], m02 = fwd[0];
+  const m10 = right[1], m11 = up[1], m12 = fwd[1];
+  const m20 = right[2], m21 = up[2], m22 = fwd[2];
+  const tr = m00 + m11 + m22;
+  let qx, qy, qz, qw;
+  if (tr > 0) {
+    const s = Math.sqrt(tr + 1) * 2;
+    qw = 0.25 * s;
+    qx = (m21 - m12) / s;
+    qy = (m02 - m20) / s;
+    qz = (m10 - m01) / s;
+  } else if (m00 > m11 && m00 > m22) {
+    const s = Math.sqrt(1 + m00 - m11 - m22) * 2;
+    qw = (m21 - m12) / s;
+    qx = 0.25 * s;
+    qy = (m01 + m10) / s;
+    qz = (m02 + m20) / s;
+  } else if (m11 > m22) {
+    const s = Math.sqrt(1 + m11 - m00 - m22) * 2;
+    qw = (m02 - m20) / s;
+    qx = (m01 + m10) / s;
+    qy = 0.25 * s;
+    qz = (m12 + m21) / s;
+  } else {
+    const s = Math.sqrt(1 + m22 - m00 - m11) * 2;
+    qw = (m10 - m01) / s;
+    qx = (m02 + m20) / s;
+    qy = (m12 + m21) / s;
+    qz = 0.25 * s;
+  }
+  return [qx, qy, qz, qw];
+}
+
 // ---- mat4 (column-major) ---------------------------------------------------
 export function mat4() {
   const m = new Float32Array(16);

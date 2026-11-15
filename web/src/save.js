@@ -119,6 +119,7 @@ export function applySave(g, data) {
   g.weaponCooldown = 0;
   g.shieldCooldown = 0;
   g.dockHint = 0;
+  g.launchSeq = 0; // never resume a launch ride from a save
   g.ecmTime = 0;
   g.ecmCooldown = 0;
   if (d.phase === 'flight') {

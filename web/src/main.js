@@ -8,7 +8,7 @@ import { setupKeyboard, setupMouse, setupGamepad, updateCtrl } from './controls.
 import { setupTouchControls, clearTouchEdges, syncThrottleKnob } from './touch.js';
 import { loadAssets, SHIP_DEFS, resolveTextureName } from './assets.js';
 import {
-  createGame, stepGame, launch, marketFor, buyGood, sellGood, cargoUsed,
+  createGame, stepGame, launch, launchTrip, marketFor, buyGood, sellGood, cargoUsed,
   shipyardFor, tradeInValue, buyShip, shipName, zoomScanner,
   equipmentFor, buyEquipment, spawnThargoid, SYSTEMS, rankName, legalStatus,
   SUN_POS, SUN_R,
@@ -329,7 +329,7 @@ function wireDockScreen() {
   });
   el('btnLaunch').addEventListener('click', () => {
     audio.unlock();
-    launch(game);
+    launchTrip(game); // the ten-second ride out of the tube (#6)
     hideOverlays();
     el('touch').classList.remove('hidden');
   });
@@ -587,7 +587,7 @@ async function main() {
 
   el('btnStart').addEventListener('click', () => {
     audio.unlock();
-    launch(game);
+    launchTrip(game); // the ten-second ride out of the tube (#6)
     hideOverlays();
     el('touch').classList.remove('hidden');
   });
@@ -596,7 +596,7 @@ async function main() {
     game.easyDock = easyBox.checked; // the checkbox survives a restart
     prevPhase = 'title';
     audio.unlock();
-    launch(game);
+    launchTrip(game);
     hideOverlays();
     el('touch').classList.remove('hidden');
   });
@@ -613,7 +613,9 @@ async function main() {
   const query = new URLSearchParams(location.search);
   if (query.has('autostart')) {
     audio.unlock();
-    launch(game);
+    // ?trip takes the ten-second launch ride (#6); the plain smoke skips it
+    if (query.has('trip')) launchTrip(game);
+    else launch(game);
     hideOverlays();
     el('touch').classList.remove('hidden');
     // ?dock drops the ship next to the station so the market screen is testable
