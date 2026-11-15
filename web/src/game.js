@@ -108,6 +108,20 @@ const YELLOW = [1, 1, 0];
 // so the heavy ships really are slow and tough.
 const PIRATE_KEYS = ['mamba', 'krait', 'cobramk1', 'asp', 'gecko', 'constrictor'];
 const TRADER_KEYS = ['python', 'anaconda', 'boa', 'boa-mk2', 'adder'];
+// Passenger runs (#15): light traffic that shuts between station and planet
+// and runs from danger on sight. shortcut: none of the port's 14 meshes is a
+// dedicated liner, so the shuttle role rides the Cobra and the Adder — the
+// Adder's own shipdata roles include `shuttle`.
+const PASSENGER_KEYS = ['cobra3', 'adder'];
+
+// Behaviour states and ranges (#15). Every NPC either fights its nearest foe,
+// runs from a threat, or patrols on a straight line.
+const PEACEFUL_ROLES = ['trader', 'passenger'];
+const ENGAGE_RANGE = 8000;    // how close a hostile must be to fight at all
+const POLICE_ENGAGE = 10000;  // the protection radius a clean viper patrols
+const PASSENGER_FLEE = 4000;  // shuttles run from a hostile on sight
+const FLEE_RANGE = 15000;     // keep running while the threat is this close
+const MAX_PEACEFUL = 2;       // one hauler and one shuttle: inhabited, not crowded
 
 function shipData(g, key) { return g.shipdata[key]; }
 // Ship stats live in templates. Player hulls are thin layers over the real
@@ -253,6 +267,16 @@ export function spawnTrader(g) {
   const key = TRADER_KEYS[g.traderSeq++ % TRADER_KEYS.length];
   const s = makeShip(g, key, spawnAhead(g, 1200, 3200), [0, 0, 0, 1],
     { hostile: false, role: 'trader' });
+  g.entities.push(s);
+  return s;
+}
+
+// Passenger traffic (#15): the light shuttle runs, non-hostile like the
+// haulers but quick to run — see updateNPC for the flee rules.
+export function spawnPassenger(g) {
+  const key = PASSENGER_KEYS[g.passengerSeq++ % PASSENGER_KEYS.length];
+  const s = makeShip(g, key, spawnAhead(g, 1000, 2800), [0, 0, 0, 1],
+    { hostile: false, role: 'passenger' });
   g.entities.push(s);
   return s;
 }
@@ -482,6 +506,10 @@ export function createGame(assets) {
     view: 'front', // camera view (#14): front | aft | port | starboard
     weaponsOnline: true,
     weaponKey: 'WEAPON_BEAM_LASER',
+    weaponLabel: 'FORE · BEAM', // HUD line under the crosshair (#16)
+    weaponMount: 'fore',        // which mount FIRE shoots: fore | aft (#16)
+    lockProgress: 0,            // missile lock on the target, 0..1 (#18)
+    lockTarget: null,           // what the lock was built on
     systemIndex: 7, // Lave — the classic starting system
     galaxy: 1,     // which of the 8 galaxies the commander is in (#8)
     galConfirm: false, // a GALACTIC press is armed, waiting for the second (#8)
@@ -507,6 +535,7 @@ export function createGame(assets) {
     mission: missionState(), // the Galactic Navy chain (#7), travels in the save
     pirateSeq: 0,
     traderSeq: 0,
+    passengerSeq: 0,
     equipmentTypes: assets.plists.equipment || [], // real equipment.plist rows
     hasEquipment: (key) => !!g.player.equipment[key],
 
@@ -577,10 +606,14 @@ export function createGame(assets) {
     cargo: {},
     equipment: {}, // fitted gear: EQ_ECM, …
     pylons: 0,    // extra missile racks bought beyond the hull's own
+    // The two laser mounts (#16): the hull starts with the free forward beam,
+    // the aft mount is empty until a laser is fitted there.
+    weapons: { fore: 'EQ_WEAPON_BEAM_LASER', aft: null },
     shipKey: 'cobra3-player', // yard key of the starting hull, for trade-in
     alive: true,
   };
 
+  syncWeaponState(g); // weaponKey / weaponLabel for the HUD and crosshair
   spawnStation(g);
   return g;
 }
@@ -767,9 +800,11 @@ export function buyShip(g, key) {
 // equipment.plist prices, listed by the plist's own techlevel.
 // shortcut: no ship-compatibility gating — everything on the list fits.
 const EQUIPMENT_KEYS = [
-  'EQ_CARGO_BAY', 'EQ_MISSILE', 'EQ_ECM', 'EQ_FUEL_SCOOPS', 'EQ_ESCAPE_POD',
-  'EQ_ENERGY_UNIT', 'EQ_DOCK_COMP', 'EQ_GAL_DRIVE', 'EQ_FUEL_INJECTION',
-  'EQ_SHIELD_BOOSTER', 'EQ_WEAPON_MINING_LASER',
+  'EQ_CARGO_BAY', 'EQ_MISSILE', 'EQ_ECM',
+  'EQ_WEAPON_PULSE_LASER', 'EQ_WEAPON_BEAM_LASER',
+  'EQ_FUEL_SCOOPS', 'EQ_ESCAPE_POD', 'EQ_ENERGY_UNIT', 'EQ_DOCK_COMP',
+  'EQ_GAL_DRIVE', 'EQ_FUEL_INJECTION', 'EQ_SHIELD_BOOSTER',
+  'EQ_WEAPON_MINING_LASER',
 ];
 
 // Fitted gear that changes the ship's numbers. Oolite applies the three
@@ -793,7 +828,8 @@ export function applyEquipmentStats(g) {
   p.aftShield = Math.min(p.aftShield, p.maxShield);
 }
 
-// The row's hint column: what the item does before it is bought.
+// The row's hint column: what the item does before it is bought. Laser rows
+// do not use it — their note reads out the two mounts instead (#16).
 const EQUIPMENT_NOTES = {
   EQ_CARGO_BAY: `+${EXTRA_CARGO} t hold`,
   EQ_ENERGY_UNIT: `recharge ×${ENERGY_RECHARGE_MULT}`,
@@ -803,8 +839,16 @@ const EQUIPMENT_NOTES = {
   EQ_ESCAPE_POD: 'survives destruction',
   EQ_GAL_DRIVE: 'one jump to the next galaxy',
   EQ_FUEL_INJECTION: 'boost ×2.5',
-  EQ_WEAPON_MINING_LASER: 'one-shot asteroids, 12.5 km',
 };
+
+// Which laser sits in which mount (#16) — the note column of every laser row.
+function mountNote(p) {
+  const at = (m) => {
+    const spec = LASERS[(p.weapons || {})[m]];
+    return spec ? spec.name.replace(' Laser', '') : '—';
+  };
+  return `fore: ${at('fore')} · aft: ${at('aft')}`;
+}
 
 export function missileCap(g) {
   // the hull's built-in pylons plus every extra rack bought at the station
@@ -824,12 +868,39 @@ export function equipmentFor(g) {
       // shortcut: Oolite hulls have fixed pylons and sell no extra racks.
       return { ...row, note: `pylons ${p.missiles}/${missileCap(g)}`, can: true };
     }
+    if (LASERS[key]) {
+      // Two buttons, one per mount (#16): FORE fits it forward, AFT rearward,
+      // each disabled where that laser already sits. can stays true — the
+      // price and the mount are checked by buyEquipment itself.
+      return { ...row, laser: true, note: mountNote(p),
+        fore: p.weapons.fore === key, aft: p.weapons.aft === key, can: true };
+    }
     const owned = !!p.equipment[key];
     return { ...row, note: owned ? 'fitted' : EQUIPMENT_NOTES[key] || '', can: !owned };
   }).filter(Boolean);
 }
 
-export function buyEquipment(g, key) {
+// Fitting a laser (#16): the shop's FORE / AFT button picks the mount. A
+// mount that already holds a laser has it replaced.
+// shortcut: the port does not sell the replaced weapon back.
+function buyLaser(g, key, mount) {
+  const p = g.player;
+  const m = mount === 'aft' ? 'aft' : 'fore';
+  if (p.weapons[m] === key) return false; // already fitted there
+  const row = equipmentFor(g).find((r) => r.key === key);
+  if (!row) return false;
+  if (p.credits < row.price) { pushMessage(g, 'INSUFFICIENT CREDITS', RED); return false; }
+  p.credits -= row.price;
+  p.weapons[m] = key;
+  g.weaponMount = m; // prime what was just fitted, so the next shot is it
+  syncWeaponState(g);
+  g.events.push({ type: 'buy' });
+  pushMessage(g, `${row.name.toUpperCase()} FITTED ${m.toUpperCase()}`, GREEN);
+  return true;
+}
+
+export function buyEquipment(g, key, mount) {
+  if (LASERS[key]) return buyLaser(g, key, mount);
   const row = equipmentFor(g).find((r) => r.key === key);
   const p = g.player;
   if (!row || !row.can) return false;
@@ -1183,6 +1254,7 @@ function arriveClean(g) {
   g.player.speed = 150;
   spawnPirate(g);
   spawnTrader(g);
+  spawnPassenger(g); // the hauler and the shuttle of the local traffic (#15)
   spawnPolice(g);
   spawnAsteroidField(g); // a fresh sky has fresh rocks to mine (#12)
 }
@@ -1233,19 +1305,69 @@ export function galacticJump(g) {
 }
 
 // ---- combat ---------------------------------------------------------------
+// Lasers (#16): the port's per-shot numbers in the shape of the
+// equipment.plist weapon_info rows — range, damage per shot, seconds between
+// shots and the heat each shot adds. shortcut: upstream's beam laser is a
+// 0.1 s / 6 damage repeater and this port has always fired one 60-damage
+// shot every 0.45 s, so the three rows keep that scale and take their
+// differences from the plist's own ordering: the pulse hits harder and
+// slower, the mining laser hits hardest and runs cool, the beam is the fast
+// one. The Military Laser (60 000 CR, 30 km range) is deliberately not sold:
+// at 12 damage every 0.1 s it outranges and out-damages everything for a
+// price a commander can earn in an afternoon (see MISSING-FEATURES.md #16).
+export const LASERS = {
+  EQ_WEAPON_PULSE_LASER: {
+    name: 'Pulse Laser', crosshair: 'WEAPON_PULSE_LASER',
+    range: 6000, damage: 90, cooldown: 0.9, temp: 70,
+  },
+  EQ_WEAPON_BEAM_LASER: {
+    name: 'Beam Laser', crosshair: 'WEAPON_BEAM_LASER',
+    range: 6000, damage: 60, cooldown: 0.45, temp: 55,
+  },
+  EQ_WEAPON_MINING_LASER: {
+    name: 'Mining Laser', crosshair: 'WEAPON_MINING_LASER',
+    range: 12500, damage: 120, cooldown: 2.5, temp: 10,
+  },
+};
+export const LASER_KEYS = Object.keys(LASERS);
+
+// What FIRE shoots (#16): the primed mount, forward or aft. weaponKey picks
+// the crosshair art out of crosshairs.plist, weaponLabel is the HUD line
+// under the crosshair that reads the choice back.
+export function syncWeaponState(g) {
+  const spec = LASERS[g.player.weapons[g.weaponMount]];
+  g.weaponKey = spec ? spec.crosshair : 'WEAPON_NONE';
+  const short = spec ? spec.name.split(' ')[0].toUpperCase() : 'NO LASER';
+  g.weaponLabel = `${g.weaponMount.toUpperCase()} · ${short}`;
+}
+
+// T in flight, the LASER touch button: swap what the gun is primed on.
+export function cycleLaserMount(g) {
+  g.weaponMount = g.weaponMount === 'fore' ? 'aft' : 'fore';
+  syncWeaponState(g);
+  const spec = LASERS[g.player.weapons[g.weaponMount]];
+  pushMessage(g,
+    `LASER: ${g.weaponMount.toUpperCase()} — ${spec ? spec.name.toUpperCase() : 'NOTHING FITTED'}`,
+    spec ? YELLOW : RED, 4);
+  g.events.push({ type: 'beep' });
+}
+
 function fireLaser(g) {
   const p = g.player;
-  // The Mining Laser (equipment.plist EQ_WEAPON_MINING_LASER): the real
-  // weapon_info numbers — range 12 500 m and shot_temperature 10, so it runs
-  // cool — plus one-shot rocks, what its description promises.
-  // shortcut: upstream's mining laser does 50 damage like the pulse laser and
-  // its mining edge is cool running; with no weapon-priming UI (#16) the port
-  // has one beam, so fitting it upgrades that beam instead of adding a second
-  // weapon, and it doubles the damage to rocks (120 vs the rock's 100).
-  const mining = !!p.equipment.EQ_WEAPON_MINING_LASER;
-  const fwd = quatRotate(p.quat, [0, 0, 1]);
+  const mount = g.weaponMount; // 'fore' | 'aft' (#16)
+  const spec = LASERS[p.weapons[mount]];
+  if (!spec) {
+    // rate-limited so a held fire button cannot spam the message
+    if (g.weaponCooldown <= 0) {
+      pushMessage(g, `NO LASER FITTED (${mount.toUpperCase()})`, RED, 3);
+      g.weaponCooldown = 1;
+    }
+    return;
+  }
+  // the aft mount fires astern — that is what a rear laser is for (#16)
+  const fwd = quatRotate(p.quat, mount === 'aft' ? [0, 0, -1] : [0, 0, 1]);
   const origin = add(p.pos, scale(fwd, p.radius));
-  const range = mining ? 12500 : 6000;
+  const range = spec.range;
   let best = null;
   let bestT = range;
   for (const e of g.entities) {
@@ -1259,20 +1381,21 @@ function fireLaser(g) {
   const end = add(origin, scale(fwd, best ? bestT : range));
   g.shots.push({ from: origin, to: end, life: 0.12, hostile: false });
   g.events.push({ type: 'laser' });
-  g.weaponCooldown = 0.45;
-  g.weaponTemp = Math.min(300, g.weaponTemp + (mining ? 10 : 55));
+  g.weaponCooldown = spec.cooldown;
+  g.weaponTemp = Math.min(300, g.weaponTemp + spec.temp);
   if (g.weaponTemp >= 256) {
     g.weaponOffline = 2;
     g.weaponsOnline = false;
     pushMessage(g, 'LASER OVERHEATED', RED);
   }
   if (best) {
-    if (best.type === 'rock') damageRock(g, best, mining ? 120 : 60);
-    else damageShip(g, best, 60, true);
+    // the mining laser's 120 is what one-shots the 100-energy rock (#12)
+    if (best.type === 'rock') damageRock(g, best, spec.damage);
+    else damageShip(g, best, spec.damage, true);
   }
 }
 
-function damageShip(g, ship, amount, fromPlayer) {
+function damageShip(g, ship, amount, fromPlayer, attacker) {
   // Crimes: hit the police anywhere, or any innocent ship inside the
   // station's protection zone (MISSING-FEATURES.md #2). Firing crime is
   // charged once per innocent target, not on every beam tick.
@@ -1280,6 +1403,12 @@ function damageShip(g, ship, amount, fromPlayer) {
       && (ship.role === 'police' || inProtectionZone(g, ship.pos))) {
     ship.playerAttacked = true;
     addCrime(g, CRIME_FIRING);
+  }
+  // Peaceful shipping runs from whoever hit it (#15) — haulers once they are
+  // hit, shuttles also on sight (see updateNPC).
+  if (!ship.hostile && PEACEFUL_ROLES.includes(ship.role)) {
+    ship.fleeing = true;
+    ship.fleeFrom = attacker || g.player;
   }
   ship.energy -= amount;
   g.events.push({ type: 'hit' });
@@ -1296,6 +1425,10 @@ function damageShip(g, ship, amount, fromPlayer) {
     pushMessage(g, `SHIP DESTROYED — ${ship.bounty} CR BOUNTY`, YELLOW, 6);
     const missionMsg = missionOnKill(g, ship);
     if (missionMsg) pushMessage(g, missionMsg, GREEN, 6);
+  } else if (PEACEFUL_ROLES.includes(ship.role)) {
+    // a kill the commander did not make: no bounty, no crime, but the sky
+    // reports the shipping it just lost (#15)
+    pushMessage(g, `${String(ship.name || ship.shipKey).toUpperCase()} DESTROYED`, RED, 4);
   }
 }
 
@@ -1349,13 +1482,52 @@ function damagePlayer(g, amount) {
 // ---- missiles --------------------------------------------------------------
 // The real missile (shipdata oolite_template_missile): 750 m/s, 25 m
 // proximity fuse, 30 km range, blastPower 180.
-// shortcut: one standard missile per press at the locked target — no pylon
-// missile types, no lock-on status, no missile-vs-missile interception.
+// Lock states (#18): your missile only tracks when the reticle has held the
+// target in the forward arc for MISSILE_LOCK_TIME — before that it goes out
+// dumbfire, straight and blind. An incoming missile locks the same way and
+// flies straight until it has you, so turning out of its seeker cone (or the
+// ECM sweep) breaks the lock before it ever steers.
+// shortcut: no pylon missile types, no missile-vs-missile interception.
 const MISSILE_SPEED = 750;
 const MISSILE_RANGE = 30000;
 const MISSILE_DAMAGE = 180;
 const MISSILE_FUSE = 25;
-const MISSILE_TURN = 1.8; // rad/s of course change
+const MISSILE_TURN = 1.8;       // rad/s of course change
+const MISSILE_LOCK_TIME = 1.5;  // seconds of steady aim to lock on (#18)
+const MISSILE_LOCK_RANGE = 8000;
+const MISSILE_SEEKER_COS = 0.5; // seeker cone, 60° off the missile's nose
+
+// The lock on the current target (#18): it builds while the target sits in
+// the forward arc inside MISSILE_LOCK_RANGE and breaks the moment it does
+// not. Switching targets breaks it too — the reticle has to settle again.
+export function updateMissileLock(g, dt) {
+  const t = g.target;
+  if (g.lockTarget !== t) {
+    const was = g.lockProgress >= 1;
+    g.lockTarget = t;
+    g.lockProgress = 0;
+    if (was) pushMessage(g, 'MISSILE LOCK BROKEN', YELLOW, 3);
+    return;
+  }
+  if (!t || !t.alive) { g.lockProgress = 0; return; }
+  const nose = quatRotate(g.player.quat, [0, 0, 1]);
+  const to = sub(t.pos, g.player.pos);
+  const range = len(to) || 1;
+  const inArc = dot(nose, scale(to, 1 / range)) > 0.5;
+  if (range <= MISSILE_LOCK_RANGE && inArc) {
+    const before = g.lockProgress;
+    g.lockProgress = Math.min(1, g.lockProgress + dt / MISSILE_LOCK_TIME);
+    if (before < 1 && g.lockProgress >= 1) {
+      pushMessage(g, 'MISSILE LOCKED', GREEN, 3);
+      g.events.push({ type: 'beep' });
+    }
+  } else if (g.lockProgress >= 1) {
+    g.lockProgress = 0;
+    pushMessage(g, 'MISSILE LOCK BROKEN', YELLOW, 3);
+  } else {
+    g.lockProgress = 0;
+  }
+}
 
 export function launchMissile(g) {
   const p = g.player;
@@ -1368,19 +1540,25 @@ export function launchMissile(g) {
   if (p.missiles <= 0) { pushMessage(g, 'OUT OF MISSILES', RED); return false; }
   p.missiles--;
   const fwd = quatRotate(p.quat, [0, 0, 1]);
+  const homing = g.lockProgress >= 1; // no lock yet: it goes out dumb (#18)
   g.missiles.push({
     pos: add(p.pos, scale(fwd, p.radius + 5)),
     vel: scale(fwd, MISSILE_SPEED),
-    target: t,
+    target: homing ? t : null,
+    homing,
+    owner: p,
     hostile: false,
     life: MISSILE_RANGE / MISSILE_SPEED,
   });
+  g.lockProgress = 0; // the next missile has to lock on as well
   g.events.push({ type: 'missile' });
-  pushMessage(g, 'MISSILE LAUNCHED', YELLOW, 3);
+  pushMessage(g, homing ? 'MISSILE LAUNCHED' : 'MISSILE LAUNCHED — NO LOCK (DUMBFIRE)',
+    homing ? YELLOW : RED, 3);
   return true;
 }
 
 // Hostile ships loose missiles at the player, as Oolite's combat AI does.
+// They start blind (lock 0) and pick the target up in flight (#18).
 export function launchMissileAt(g, from, target, hostile) {
   const dir = norm(sub(target.pos, from.pos));
   g.missiles.push({
@@ -1388,11 +1566,21 @@ export function launchMissileAt(g, from, target, hostile) {
     vel: scale(dir, MISSILE_SPEED),
     target,
     hostile: !!hostile,
+    lock: 0,
     life: MISSILE_RANGE / MISSILE_SPEED,
   });
   g.events.push({ type: 'missile' });
   if (hostile) pushMessage(g, 'INCOMING MISSILE', RED, 3);
   return true;
+}
+
+// Closest point on the segment prev → prev+seg to `pos`, within `r` of it.
+// Fusing against the whole segment matters: at 750 m/s a 50 ms step can
+// skip clean past a small target.
+function segmentHit(prev, seg, seg2, pos, r) {
+  let f = seg2 > 0 ? dot(sub(pos, prev), seg) / seg2 : 0;
+  f = f < 0 ? 0 : f > 1 ? 1 : f;
+  return dist(add(prev, scale(seg, f)), pos) <= r;
 }
 
 function detonate(g, m) {
@@ -1412,28 +1600,56 @@ function updateMissiles(g, dt) {
   const p = g.player;
   for (const m of g.missiles) {
     m.life -= dt;
+    const prev = m.pos;
+
+    // A dumbfire has no guidance at all: straight from the launcher and
+    // blind, fusing against whatever hull it runs into except the one that
+    // fired it (#18).
+    if (!m.homing && !m.hostile) {
+      m.pos = add(prev, scale(m.vel, dt));
+      const seg = sub(m.pos, prev);
+      const seg2 = dot(seg, seg);
+      for (const e of g.entities) {
+        if (!e.alive || e === m.owner || (e.type !== 'ship' && e.type !== 'rock')) continue;
+        if (segmentHit(prev, seg, seg2, e.pos, e.radius + MISSILE_FUSE)) {
+          m.target = e; // so detonate() knows what it hit
+          detonate(g, m);
+          break;
+        }
+      }
+      continue;
+    }
+
     const t = m.target;
     const valid = t && (t === p ? p.alive : t.alive && g.entities.includes(t));
     if (!valid) { m.life = 0; continue; }
     const dir = norm(m.vel);
     const want = norm(sub(t.pos, m.pos));
-    const ax = cross(dir, want);
-    const axl = len(ax);
-    if (axl > 1e-6) {
-      const angle = Math.atan2(axl, Math.max(-1, Math.min(1, dot(dir, want))));
-      const step = Math.min(angle, MISSILE_TURN * dt);
-      const q = quatAxisAngle(ax[0] / axl, ax[1] / axl, ax[2] / axl, step);
-      m.vel = scale(quatRotate(q, dir), MISSILE_SPEED);
+
+    // An incoming missile locks on in flight: it flies straight until the
+    // target has sat in its seeker cone for MISSILE_LOCK_TIME, so breaking
+    // the cone (or the ECM) leaves it blind (#18).
+    if (m.hostile && !(m.lock >= 1)) {
+      const holding = dot(dir, want) > MISSILE_SEEKER_COS
+        && dist(m.pos, t.pos) <= MISSILE_LOCK_RANGE;
+      m.lock = holding ? Math.min(1, (m.lock || 0) + dt / MISSILE_LOCK_TIME) : 0;
     }
-    const prev = m.pos;
+    const steers = m.hostile ? m.lock >= 1 : !!m.homing;
+
+    if (steers) {
+      const ax = cross(dir, want);
+      const axl = len(ax);
+      if (axl > 1e-6) {
+        const angle = Math.atan2(axl, Math.max(-1, Math.min(1, dot(dir, want))));
+        const step = Math.min(angle, MISSILE_TURN * dt);
+        const q = quatAxisAngle(ax[0] / axl, ax[1] / axl, ax[2] / axl, step);
+        m.vel = scale(quatRotate(q, dir), MISSILE_SPEED);
+      }
+    }
     m.pos = add(prev, scale(m.vel, dt));
-    // Fuse against the whole segment travelled this frame, not just the end
-    // point: at 750 m/s a 50 ms step can skip clean past a small target.
     const seg = sub(m.pos, prev);
     const seg2 = dot(seg, seg);
-    let f = seg2 > 0 ? dot(sub(t.pos, prev), seg) / seg2 : 0;
-    f = f < 0 ? 0 : f > 1 ? 1 : f;
-    if (dist(add(prev, scale(seg, f)), t.pos) <= t.radius + MISSILE_FUSE) detonate(g, m);
+    if (segmentHit(prev, seg, seg2, t.pos, t.radius + MISSILE_FUSE)) detonate(g, m);
   }
   g.missiles = g.missiles.filter((m) => m.life > 0);
 }
@@ -1513,6 +1729,64 @@ function integrate(e, dt, speedScale = 1) {
   e.pos = add(e.pos, scale(e.vel, dt));
 }
 
+// Who this NPC fights right now (#15): null means nobody worth chasing, so
+// the ship patrols. The police hunt hostiles while your record is clean and
+// you the moment it is not; Thargoids attack everything that moves; pirates
+// go for whatever is closest — you, or the peaceful shipping that crosses
+// their path (the original's pilots farm their rating on traders).
+function pickFoe(g, e) {
+  const p = g.player;
+  const cands = [];
+  const see = (other, range) => {
+    if (other && other.alive && dist(other.pos, e.pos) <= range) cands.push(other);
+  };
+  if (e.role === 'police') {
+    if (e.hostile) return p.alive ? p : null;
+    for (const o of g.entities) {
+      if (o.type === 'ship' && o !== e && o.hostile && o.role !== 'police') see(o, POLICE_ENGAGE);
+    }
+  } else if (e.role === 'thargoid') {
+    see(p, ENGAGE_RANGE);
+    for (const o of g.entities) {
+      if (o.type === 'ship' && o !== e
+        && (PEACEFUL_ROLES.includes(o.role) || o.role === 'police')) see(o, ENGAGE_RANGE);
+    }
+  } else {
+    see(p, ENGAGE_RANGE);
+    for (const o of g.entities) {
+      if (o.type === 'ship' && o !== e && PEACEFUL_ROLES.includes(o.role)) see(o, ENGAGE_RANGE);
+    }
+  }
+  let best = null;
+  let bestD = Infinity;
+  for (const c of cands) {
+    const d = dist(c.pos, e.pos);
+    if (d < bestD) { bestD = d; best = c; }
+  }
+  return best;
+}
+
+// The nearest hostile ship within `range` of e — what a shuttle runs from.
+function nearestHostile(g, e, range) {
+  let best = null;
+  let bestD = Infinity;
+  for (const o of g.entities) {
+    if (o.type !== 'ship' || !o.hostile) continue;
+    const d = dist(o.pos, e.pos);
+    if (d <= range && d < bestD) { bestD = d; best = o; }
+  }
+  return best;
+}
+
+// Run away from a threat until it is far behind, then rejoin the traffic.
+function fleeStep(e, g, dt) {
+  const from = e.fleeFrom && e.fleeFrom.pos ? e.fleeFrom.pos : g.player.pos;
+  if (dist(from, e.pos) > FLEE_RANGE) { e.fleeing = false; return false; }
+  steerToward(e, add(e.pos, scale(norm(sub(e.pos, from)), 2000)), dt, e.pitchRate);
+  integrate(e, dt, 1);
+  return true;
+}
+
 function updateNPC(e, g, dt) {
   const p = g.player;
   const toPlayer = sub(p.pos, e.pos);
@@ -1529,10 +1803,30 @@ function updateNPC(e, g, dt) {
     }
   }
 
-  if (e.role === 'trader' || (e.role === 'police' && !e.hostile)) {
-    // Traders drift past on a straight line and never engage; a clean
-    // commander's police escort drifts by the same way (shortcut: no patrol
-    // routes — they fly a straight line like the traders do).
+  // --- peaceful shipping: patrol, and run from what cannot be fought (#15)
+  if (e.role === 'trader' || e.role === 'passenger') {
+    if (!e.fleeing) {
+      // shuttles run from a hostile on sight, haulers only once they are hit
+      // (damageShip sets fleeing and whoever hit them as the threat)
+      if (e.role === 'passenger') {
+        const t = nearestHostile(g, e, PASSENGER_FLEE);
+        if (t) { e.fleeing = true; e.fleeFrom = t; }
+      }
+    }
+    if (e.fleeing && fleeStep(e, g, dt)) {
+      if (d > 25000) e.alive = false;
+      return;
+    }
+    if (d > 20000) { e.alive = false; return; }
+    integrate(e, dt, 0.5);
+    return;
+  }
+
+  // A clean commander's police escort flies with the traders — until a
+  // hostile comes close enough to protect them from (#15).
+  if (e.role === 'police' && !e.hostile) {
+    const guard = pickFoe(g, e);
+    if (guard) { engageNPC(e, g, dt, guard); return; }
     if (d > 20000) { e.alive = false; return; }
     integrate(e, dt, 0.5);
     return;
@@ -1552,51 +1846,76 @@ function updateNPC(e, g, dt) {
     return;
   }
 
+  const foe = pickFoe(g, e);
+  if (!foe) {
+    // nobody in range worth fighting: keep the sky moving on a straight line
+    if (d > 20000) { e.alive = false; return; }
+    integrate(e, dt, 0.5);
+    return;
+  }
+  engageNPC(e, g, dt, foe);
+}
+
+// The fight itself: turn onto the foe, close, fire when aligned. The foe is
+// the player or another ship — NPC-on-NPC laser fire costs the victim hull
+// and pays nobody (shortcut: no NPC kill rewards or ratings here).
+function engageNPC(e, g, dt, foe) {
+  const p = g.player;
+  const df = dist(foe.pos, e.pos);
+
   e.think -= dt;
   if (e.think <= 0) {
     e.think = 0.4 + Math.random() * 0.6;
     e.strafePhase += 0.7;
   }
 
-  let aimAt = p.pos;
-  if (d < 700) {
-    // Too close: fly past instead of pinning on the player.
+  let aimAt = foe.pos;
+  if (df < 700) {
+    // Too close: fly past instead of pinning on the foe.
     const fwd = quatRotate(e.quat, [0, 0, 1]);
     aimAt = add(e.pos, scale(fwd, 2000));
-  } else if (d < 4000) {
+  } else if (df < 4000) {
     // Circle strafe so dogfights do not become head-on stalls.
-    const tangent = cross(norm(toPlayer), [0, 1, 0]);
-    aimAt = add(p.pos, scale(norm(tangent), Math.sin(e.strafePhase) * 600));
+    const tangent = cross(norm(sub(foe.pos, e.pos)), [0, 1, 0]);
+    aimAt = add(foe.pos, scale(norm(tangent), Math.sin(e.strafePhase) * 600));
   }
   steerToward(e, aimAt, dt, e.pitchRate * 0.9);
-  integrate(e, dt, d < 900 ? 1.0 : 0.85);
+  integrate(e, dt, df < 900 ? 1.0 : 0.85);
 
   // Fire when roughly aligned and in range.
   e.fireCooldown -= dt;
   const fwd = quatRotate(e.quat, [0, 0, 1]);
-  const aim = norm(sub(p.pos, e.pos));
+  const aim = norm(sub(foe.pos, e.pos));
   const aligned = dot(fwd, aim);
-  if (e.fireCooldown <= 0 && d < 3500 && aligned > 0.985) {
+  if (e.fireCooldown <= 0 && df < 3500 && aligned > 0.985) {
     e.fireCooldown = 1.1 + Math.random() * 0.7;
+    const hits = aligned > 0.995 || Math.random() < 0.5;
     g.shots.push({
       from: add(e.pos, scale(fwd, e.radius)),
-      to: add(p.pos, scale(norm(sub(e.pos, p.pos)), -len(sub(e.pos, p.pos)))),
-      life: 0.12, hostile: true,
+      to: foe.pos.slice(),
+      life: 0.12,
+      hostile: foe === p, // only a shot at the commander can hurt the player
+      npc: foe !== p,     // …and amber on the scanner beam for the rest
     });
     g.events.push({ type: 'laser' });
-    if (aligned > 0.995 || Math.random() < 0.5) damagePlayer(g, 35);
+    if (hits) {
+      if (foe === p) damagePlayer(g, 35);
+      else damageShip(g, foe, 35, false, e);
+    }
   }
 
-  // Missiles: hostiles loose one now and then once in range. The first shot
-  // waits 15–40 s so a fresh commander is not swarmed on launch.
+  // Missiles are for the commander: a hostile busy with the shipping does
+  // not loose one at you from across the sky. The first shot waits 15–40 s
+  // so a fresh commander is not swarmed on launch.
   // shortcut: NPCs carry unlimited missiles — only the player counts a pylon.
+  if (foe !== p) return;
   if (e.missileCd === undefined) e.missileCd = 15 + Math.random() * 25;
   e.missileCd -= dt;
   if (e.missileCd <= 0) {
     e.missileCd = e.role === 'thargoid' ? 18 + Math.random() * 15 : 25 + Math.random() * 30;
     const inbound = g.missiles.reduce((n, m) => n + (m.hostile ? 1 : 0), 0);
     const shoots = e.role === 'thargoid' || Math.random() < 0.5;
-    if (d < 6000 && d > 200 && inbound < 2 && p.alive && shoots) {
+    if (df < 6000 && df > 200 && inbound < 2 && p.alive && shoots) {
       launchMissileAt(g, e, p, true);
     }
   }
@@ -1835,24 +2154,33 @@ export function stepGame(g, input, dt) {
     : cargoUsed(g) >= p.maxCargo ? 'full'
     : 'okay';
 
-  // --- respawn contacts ---------------------------------------------------
+  // --- respawn contacts (#15) ----------------------------------------------
+  // Caps, not timers, keep the sky inhabited without crowding it: at most two
+  // hostiles, one hauler and one shuttle (MAX_PEACEFUL) and the viper patrol.
   g.spawnTimer -= dt;
-  const hostiles = g.entities.filter((e) => e.hostile).length;
-  const police = g.entities.filter((e) => e.role === 'police').length;
+  const ships = g.entities.filter((e) => e.type === 'ship');
+  const hostiles = ships.filter((e) => e.hostile).length;
+  const police = ships.filter((e) => e.role === 'police').length;
+  const peaceful = ships.filter((e) => !e.hostile && e.role !== 'police').length;
   if (g.witchspace) {
     // stranded: only the Thargoids are out here, and they keep coming (#10)
     if (g.spawnTimer <= 0 && hostiles < 3) {
       g.spawnTimer = 12;
       spawnThargoid(g);
     }
-  } else if (g.spawnTimer <= 0 && hostiles < 2) {
+  } else if (g.spawnTimer <= 0) {
     g.spawnTimer = 12;
-    // a wanted commander gets the police on their tail instead of a free spawn
-    if (g.crime > 0 && police === 0) spawnPolice(g);
-    else if (hostiles === 0) spawnPirate(g);
-    // one hostile in three is the alien instead of a pirate
-    else if (Math.random() < 0.6) (Math.random() < 0.33 ? spawnThargoid(g) : spawnPirate(g));
-    if (!g.entities.some((e) => e.role === 'trader') && Math.random() < 0.5) spawnTrader(g);
+    if (hostiles < 2) {
+      // a wanted commander gets the police on their tail instead of a free spawn
+      if (g.crime > 0 && police === 0) spawnPolice(g);
+      else if (hostiles === 0) spawnPirate(g);
+      // one hostile in three is the alien instead of a pirate
+      else if (Math.random() < 0.6) (Math.random() < 0.33 ? spawnThargoid(g) : spawnPirate(g));
+    }
+    if (peaceful < MAX_PEACEFUL) {
+      if (!ships.some((e) => e.role === 'trader')) spawnTrader(g);
+      else spawnPassenger(g);
+    }
   }
 
   // --- shots fade ---------------------------------------------------------
@@ -1959,6 +2287,7 @@ export function stepGame(g, input, dt) {
   // --- targeting / compass ------------------------------------------------
   if (input.targetNext) cycleTarget(g);
   if (g.target && (!g.target.alive || !g.entities.includes(g.target))) g.target = null;
+  updateMissileLock(g, dt); // the lock follows the reticle (#18)
   g.compass = g.target || g.station;
   g.targetBounty = g.target && g.target.bounty ? g.target.bounty : 0;
 

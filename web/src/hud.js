@@ -294,12 +294,36 @@ export class Hud {
     this.surround(p.x, p.y, p.w, p.h, color, p.a);
   }
 
+  // The missile indicator (#18): the pylon triangles in the colour of the
+  // lock — dim when unarmed, amber while the reticle is still locking, green
+  // when a homing shot is ready, red when a missile has locked onto you —
+  // and the state spelled out beside them, so the whole picture reads at a
+  // glance the way the original's indicator does.
   drawMissileDisplay(info) {
+    const g = this.g;
     const p = this.place(info, -228, -224, 12, 12);
     const ctx = this.ctx;
-    const n = this.g.player.missiles;
-    ctx.strokeStyle = this.rgba(GREEN, p.a);
-    ctx.fillStyle = this.rgba(GREEN, p.a);
+    const n = g.player.missiles;
+    const incoming = g.missiles.filter((m) => m.hostile);
+    const incomingLocked = incoming.some((m) => m.lock >= 1);
+    const locked = g.lockProgress >= 1;
+    let state;
+    let col;
+    if (incoming.length) {
+      state = incomingLocked ? 'INCOMING — LOCKED' : 'INCOMING — LOCKING';
+      col = incomingLocked ? RED : YELLOW;
+    } else if (n === 0 || !g.target) {
+      state = 'UNARMED';
+      col = DARKGREEN;
+    } else if (locked) {
+      state = 'MISSILE LOCKED';
+      col = GREEN;
+    } else {
+      state = `LOCK ${Math.round((g.lockProgress || 0) * 100)}%`;
+      col = YELLOW;
+    }
+    ctx.strokeStyle = this.rgba(col, p.a);
+    ctx.fillStyle = this.rgba(col, p.a);
     ctx.lineWidth = Math.max(1, this.L(1));
     // four slots for the hull's pylons, one more per bought rack — eight is
     // the most that fits on the dial
@@ -317,6 +341,9 @@ export class Hud {
       if (i < n) ctx.fill();
       else ctx.stroke();
     }
+    // the state line, right of the last triangle on the same row
+    const right = p.x + (slots - 1) * (info.spacing || 16) + p.w / 2 + 10;
+    this.text(state, right, p.y, 9, col, 0, p.a);
   }
 
   drawStatusLight(info) {
@@ -523,6 +550,21 @@ export class Hud {
     this.text(`${t.name}  ${Math.round(t.range)} m`, x + r + this.L(6), y + r, 10, col, 0, 0.9);
   }
 
+  // ---- primed laser (#16) --------------------------------------------------
+  // What FIRE will shoot: mount and weapon, centred under the crosshair —
+  // red when the primed mount holds nothing at all.
+  drawLaserLabel() {
+    const g = this.g;
+    if (!g.weaponLabel) return;
+    const ctx = this.ctx;
+    ctx.font = `bold ${Math.max(10, this.L(10))}px "Courier New", monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const armed = g.weaponKey !== 'WEAPON_NONE';
+    ctx.fillStyle = this.rgba(armed ? GREEN : RED, 0.95);
+    ctx.fillText(g.weaponLabel, this.X(0), this.Y(-64));
+  }
+
   // ---- crosshair -----------------------------------------------------------
   drawCrosshair() {
     const g = this.g;
@@ -687,6 +729,7 @@ export class Hud {
 
     this.drawCockpitFrame();
     this.drawCrosshair();
+    this.drawLaserLabel(); // the primed mount and laser (#16)
     this.drawLegends();
     for (const info of this.hud.dials || []) {
       const eq = info.equipment_required;

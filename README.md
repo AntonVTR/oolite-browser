@@ -52,9 +52,17 @@ gyro, keyboard/mouse and gamepad.
 
 ## Also ported (P2)
 
-- **Missiles**: `M` / MISSILE / Start fires one at the locked target; it
-  tracks, hits and explodes on the real shipdata numbers (750 m/s, 25 m fuse,
-  blastPower 180). Hostile ships loose their own at you.
+- **Missiles**: `M` / MISSILE / Start fires one at the target the reticle has
+  locked — 1.5 s of steady aim inside 8 km, reported as `MISSILE LOCKED`.
+  Fire before that and the pylon is spent on a **dumbfire** that flies straight
+  and blind; once launched they track, hit and explode on the real shipdata
+  numbers (750 m/s, 25 m fuse, blastPower 180). Hostile ships loose their own
+  at you **blind** too: an incoming missile flies straight until you have sat
+  in its seeker cone for the same 1.5 s (`INCOMING — LOCKING`), and after that
+  it holds — break that early by turning out of the cone, or jam it with the
+  ECM. The missile indicator reads every state out: `UNARMED`, `LOCK n%`,
+  `MISSILE LOCKED`, `INCOMING — LOCKING` / `LOCKED`, with the pylon triangles
+  in the same colour.
 - **ECM**: buy the E.C.M. System, fire it with `X` / ECM — four pulses sweep
   out to 25.6 km over 2.5 s and detonate incoming missiles, drain energy, then
   rest for 5 s. Extra missiles (300 CR) fill free pylons; past the hull's own
@@ -62,6 +70,16 @@ gyro, keyboard/mouse and gamepad.
 - **Thargoid warship** on its real mesh and texture: hostile, fast, it never
   breaks off and shoots missiles often. The Constrictor and the Adder join the
   pirate and trader rosters — 14 ship types in the sky now.
+- **A living sky**: every ship picks what it fights. Vipers protect the
+  traffic while your record is clean and hunt you the moment it is not,
+  pirates go for whatever is closest — you, or the haulers they farm their
+  rating on — and Thargoids attack everything that moves, all of it visible
+  as amber NPC-on-NPC laser fire on the scanner (those kills pay nobody).
+  Passenger shuttles (Cobra, Adder) join the heavy haulers in local traffic:
+  haulers turn tail once they are hit, shuttles run from a hostile on sight,
+  and both go back to business when the threat is 15 km behind. Spawn caps
+  keep it inhabited without crowding — at most two hostiles and one hauler
+  plus one shuttle.
 - **Witchspace interception**: 0.78% of jumps mis-jump — the original's own
   odds — and strand you in witchspace with the jump's fuel already spent: no
   station anywhere (DOCK answers `NO STATION TO DOCK AT`, the status screen
@@ -86,6 +104,15 @@ gyro, keyboard/mouse and gamepad.
   rocks. Broken rocks pay a 10 CR bounty and release ore canisters — minerals,
   gold, platinum or gem-stones — for the scoops to collect and the market to
   buy.
+- **Laser types and mounts**: every hull carries a **forward** and an **aft**
+  laser, and the station sells the real `equipment.plist` rows — Pulse
+  (4 000 CR), Beam (10 000 CR), Mining (8 000 CR) — with a **FORE** / **AFT**
+  button per row and a note reading both mounts out. They differ for real:
+  beam 60 damage every 0.45 s, pulse 90 every 0.9 s, mining 120 every 2.5 s at
+  12.5 km and cool enough never to overheat. `T` / **LASER** swaps what FIRE
+  shoots — forward along the nose or astern from the tail — with the choice on
+  a HUD line under the crosshair. The Military Laser is deliberately not sold
+  (it would outrange and out-damage everything; see `MISSING-FEATURES.md` #16).
 - **Views and live instruments**: `1`–`4` (or the **VIEW** button) switch the
   front, aft, port and starboard views inside a canopy frame drawn on the HUD
   canvas — the crosshair only shows in the view that points where the laser
@@ -101,11 +128,11 @@ gyro, keyboard/mouse and gamepad.
   priority AI), which this port does not have. The Galactic Navy chain itself
   is hand-rolled as plain data instead (see below, #7); the rest of Oolite's
   script content is untouched.
-- 30 of the 41 equipment types — the shop sells eleven of them (cargo bay,
+- 28 of the 41 equipment types — the shop sells thirteen of them (cargo bay,
   extra energy unit, shield boosters, docking computer, fuel scoops, escape
-  pod, fuel injectors, E.C.M., missiles, galactic hyperdrive, mining laser),
-  while the other laser types, cloak, passenger berth and the rest are not
-  modelled — plus ship AI scripts
+  pod, fuel injectors, E.C.M., missiles, galactic hyperdrive, pulse laser,
+  beam laser, mining laser), while the Military Laser, cloak, passenger berth
+  and the rest are not modelled — plus ship AI scripts
   (`.js`), mines and missile-vs-missile interception.
 - Real sun/planet textures (both are shaded spheres), a textured cockpit
   interior (the HUD draws a canopy frame instead), wormholes.
@@ -119,6 +146,7 @@ gyro, keyboard/mouse and gamepad.
 | Throttle | `W` / `S`, `F` full, `R` stop | slider (top-right) | right stick Y / D-pad ↑ ↓ |
 | Injectors (boost) | `I` | BOOST | LT / RB / X |
 | Fire | `Space` / left mouse | FIRE | RT / A |
+| Swap laser mount (fore / aft) | `T` | LASER | — |
 | Launch missile | `M` | MISSILE | Start |
 | ECM (jam missiles) | `X` | ECM | — |
 | Next target | `Tab` | TGT | LB / B |
@@ -148,7 +176,7 @@ The station screen has two tabs: **Market** (the 17 commodities of
 `trade-goods.plist`, each with the price and stock the current system's
 economy gives it — food is cheap where it is grown, computers where they are
 built — and contraband tagged **ILLEGAL**; selling it is a crime. Below them
-an **Equipment** section with eleven items at their real `equipment.plist`
+an **Equipment** section with thirteen items at their real `equipment.plist`
 prices: Large Cargo Bay (+15 t hold), Extra Energy Unit (recharge ×1.8),
 Shield Boosters (+128 shields), E.C.M. System, missiles (300 CR each — past
 the hull's pylons every missile brings its own rack), Fuel Scoops (skim the
@@ -156,8 +184,11 @@ sun's corona to refill the tank), Escape Pod (destruction becomes a rescue:
 same ship, cargo lost), Witchdrive Fuel Injectors (BOOST does nothing until
 they are bought), the Docking Computer, the **Galactic Hyperdrive**
 (50 000 CR — one jump to the next galaxy, fired from the chart, see below)
-and the **Mining Laser** (8 000 CR — 12.5 km range, cool running, breaks an
-asteroid in one shot). The other tab is **Shipyard**
+and the three lasers — **Pulse** (4 000 CR), **Beam** (10 000 CR) and
+**Mining** (8 000 CR, 12.5 km range, cool running, breaks an asteroid in one
+shot). Each laser row carries **FORE** and **AFT** buttons that fit that
+mount, so a second laser becomes your rear gun; the note on every row reads
+both mounts out (`fore: Beam · aft: —`). The other tab is **Shipyard**
 (eleven hulls with
 real `shipyard.plist` prices; your current ship is traded in at ~71% of its
 price, cargo is sold off automatically, and a bought hull leaves the stock for
@@ -200,6 +231,9 @@ node tests/test-scoop.mjs     # fuel scooping: canisters, escape capsules, the s
 node tests/test-mining.mjs    # asteroids, the mining laser, ore that pays at the market
 node tests/test-dodo.mjs      # planetinfo picks Coriolis vs Dodo, and the Dodo docks
 node tests/test-instruments.mjs  # live instruments: altitude/impact, cabin heat, alert ladder
+node tests/test-npcs.mjs      # NPC ecosystem: shuttle traffic, flee/engage states, spawn caps
+node tests/test-lasers.mjs    # laser types on the fore/aft mounts, the mount switch, saves
+node tests/test-missiles.mjs  # missile lock: progress, break-lock, dumbfire, incoming seeker
 python3 -m http.server 8099 --directory web   # local server
 # headless smoke test (console errors + screenshots):
 google-chrome --headless=new --virtual-time-budget=6000 --screenshot=/tmp/shot.png \

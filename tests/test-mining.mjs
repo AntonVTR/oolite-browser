@@ -9,7 +9,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const { parsePlist } = await import(join(root, 'web/src/plist.js'));
 const {
   createGame, stepGame, launch, spawnAsteroid, spawnAsteroidField, ORE_GOODS,
-  sellGood, equipmentFor, cargoUsed,
+  sellGood, equipmentFor, buyEquipment, cargoUsed,
 } = await import(join(root, 'web/src/game.js'));
 
 const read = (p) => readFileSync(join(root, 'web/assets', p), 'utf8');
@@ -79,7 +79,9 @@ g.weaponTemp = 0;
 g.weaponsOnline = true;
 step({ fire: true });
 assert.ok(far.alive, 'the standard beam does not reach 7 km');
-g.player.equipment.EQ_WEAPON_MINING_LASER = true;
+g.player.credits = 10000;
+assert.ok(buyEquipment(g, 'EQ_WEAPON_MINING_LASER'),
+  'the Mining Laser is bought and fitted to the forward mount (#16)');
 g.weaponCooldown = 0;
 g.weaponTemp = 0; // the real shot_temperature of 10 per shot, not 55
 step({ fire: true });
