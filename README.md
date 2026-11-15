@@ -18,7 +18,8 @@ gyro, keyboard/mouse and gamepad.
 - **Flight model** ported from `src/Core/Entities/ShipEntity.m`, using the real
   per-ship numbers from `shipdata.plist` (`max_flight_speed`, `max_flight_pitch`,
   `max_flight_roll`, `max_energy`, `max_cargo`, …).
-- **Gameplay loop**: launch from a Coriolis station → fly → shoot pirates →
+- **Gameplay loop**: launch from a Coriolis or Dodecahedron (Dodo) station →
+  fly → shoot pirates →
   dock → buy/sell commodities → trade your ship in at the shipyard → refuel →
   witchspace jump to the next system → repeat. Credits, cargo hold, bounty
   rewards, shields, laser heat, death.
@@ -27,6 +28,10 @@ gyro, keyboard/mouse and gamepad.
   **EASY MODE** on the start screen for the old assisted shortcut (the
   preference is remembered in `localStorage`). LAUNCH rides the original's
   10-second trip out of the force-field tube instead of teleporting.
+- **Dodo stations**: which systems get a Coriolis and which a dodecahedron
+  **Dodo** comes from the real `planetinfo.plist` (`station = "dodecahedron"`
+  — 22 of galaxy 1's 256 systems); the Dodo is Oolite's own mesh and
+  textures and docks under the same slot rules on its own sleeve offset.
 - **Combat rating and legal status**: kills advance you Harmless → Elite on
   the original's kill thresholds, crimes (firing on innocents in the station's
   protection zone, killing traders or police) make the Vipers hunt you as the
@@ -184,6 +189,7 @@ node tests/test-chart.mjs     # short/long chart views, system data screen, fuel
 node tests/test-travel.mjs    # galactic hyperspace and witchspace: crossing, stranding, escape
 node tests/test-scoop.mjs     # fuel scooping: canisters, escape capsules, the scoop dial
 node tests/test-mining.mjs    # asteroids, the mining laser, ore that pays at the market
+node tests/test-dodo.mjs      # planetinfo picks Coriolis vs Dodo, and the Dodo docks
 python3 -m http.server 8099 --directory web   # local server
 # headless smoke test (console errors + screenshots):
 google-chrome --headless=new --virtual-time-budget=6000 --screenshot=/tmp/shot.png \
@@ -215,6 +221,10 @@ google-chrome --headless=new --enable-logging=stderr --virtual-time-budget=6000 
 google-chrome --headless=new --enable-logging=stderr --virtual-time-budget=8000 \
   --user-data-dir=/tmp/oolite-witch --screenshot=/tmp/witch.png \
   'http://127.0.0.1:8099/?autostart=1&witchspace=1' 2>&1 | grep CONSOLE
+# a dodecahedron station in a system whose real planetinfo says so (#13):
+google-chrome --headless=new --enable-logging=stderr --virtual-time-budget=6000 \
+  --user-data-dir=/tmp/oolite-dodo --screenshot=/tmp/dodo.png \
+  'http://127.0.0.1:8099/?autostart=1&dodo=1' 2>&1 | grep CONSOLE
 ```
 
 `tools/copy-assets.sh` copies the used subset of `upstream/Resources` into

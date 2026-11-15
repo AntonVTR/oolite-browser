@@ -34,6 +34,13 @@ export const SHIP_DEFS = {
     model: 'oolite_coriolis',
     subentities: ['oolite_coriolis_faceplate', 'oolite_coriolis_tris', 'oolite_coriolis_dock'],
   },
+  // the dodecahedron station some systems get (#13), on the real mesh and
+  // the real oolite_template_dodecahedron-station data
+  dodo: {
+    shipKey: 'oolite_template_dodecahedron-station',
+    model: 'oolite_dodo',
+    subentities: ['oolite_dodo_faceplate', 'oolite_dodo_dock'],
+  },
 };
 
 export const SOUND_FILES = [

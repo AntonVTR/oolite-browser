@@ -18,7 +18,7 @@ same day (branch `iter/docking`); item 7 closed 2026-11-15 (branch
 `iter/missions`); their sections
 below keep the original description for the record. Items 8–10 closed
 2026-11-15 (branch `iter/travel`), likewise with their original descriptions
-kept below.
+kept below. Items 11–13 closed the same day (branch `iter/space`), likewise.
 
 **Ranking:** P1 = core identity of the game, P2 = universe & travel depth,
 P3 = flight/combat depth, P4 = fidelity polish.
@@ -312,6 +312,25 @@ deterministic handful per system, near the player.
 Original: besides Coriolis there are dodecahedron "Dodo" stations (ZX guide).
 Port: Coriolis only (`spawnStation()` in `web/src/game.js`, one model in
 `web/assets/models`).
+
+**Done** (branch `iter/space`): `spawnStation()` in `web/src/game.js` picks
+the station from the real `planetinfo.plist` — every system entry carries
+`station = "coriolis" | "dodecahedron"` under the galaxy/system key Oolite's
+`OOSystemDescriptionManager` reads, and 22 of galaxy 1's 256 systems say
+dodecahedron — so some systems really do get a Dodo, and the type follows the
+commander across jumps and loads. The Dodo ships as the real `oolite_dodo.dat`
+mesh with its faceplate and dock subentities on their real textures
+(`tools/copy-assets.sh`), drawn through the same `SHIP_DEFS` path as the
+Coriolis; it spins at the same 0.02 rad/s and docks under the same slot rules,
+with its own shipdata sleeve offset (560.3216 m vs the Coriolis's 500.2561 m)
+feeding `dockFrame()`. Saves gained no field: `applySave()` rebuilds the
+station for the loaded system, so old saves still load and one saved in a
+dodecahedron system comes back to its Dodo (`tests/test-dodo.mjs`, and
+`?dodo=1` forces a Dodo for the headless smoke).
+**shortcut**: both sleeves are judged against the same 130 m lateral budget
+even though their real mouths differ (the meshes span ~121 m and ~105×40 m),
+and the station type comes straight from planetinfo rather than Oolite's
+ship-role populator.
 
 ---
 

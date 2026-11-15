@@ -179,12 +179,40 @@ function makeShip(g, key, pos, quat, opts = {}) {
   };
 }
 
+// Which station a system gets (#13), from the real planetinfo.plist: every
+// system entry carries station = "coriolis" | "dodecahedron" under the
+// "galaxy-1 system" key Oolite's OOSystemDescriptionManager reads.
+//
+// Docking geometry (#6, #13): each station type carries its own sleeve
+// offset from shipdata — a sleeve on the station's +Z face, carried round by
+// the station's spin. With easy mode off, docking is judged against this
+// frame — approach along its axis, rolled with the station, under the
+// 120 m/s limit.
+// shortcut: both sleeves are judged against the same 130 m lateral budget
+// even though their real mouths differ (the meshes span ~121 m and ~105×40 m).
+const DOCK_OFFSET = [0, 0, 500.2561]; // Coriolis, from shipdata
+const SLOT_HALF = 130;   // half-width of the docking slot, metres
+const DOCK_SPEED = 120;  // m/s, the docking limit from the original
+
+function stationKind(g) {
+  const info = g.planetinfo && g.planetinfo[`${(g.galaxy || 1) - 1} ${g.systemIndex}`];
+  return info && /dodo|dodec/i.test(info.station || '') ? 'dodo' : 'coriolis';
+}
+
+const STATIONS = {
+  coriolis: { name: 'Coriolis Station', dockOffset: DOCK_OFFSET },
+  dodo: { name: 'Dodecahedron Station', dockOffset: [0, 0, 560.3216] }, // shipdata
+};
+
 export function spawnStation(g) {
-  const st = makeShip(g, 'coriolis', [0, 0, 0], [0, 0, 0, 1], { name: 'Coriolis Station', role: 'station' });
+  const kind = stationKind(g);
+  const st = makeShip(g, kind, [0, 0, 0], [0, 0, 0, 1],
+    { name: STATIONS[kind].name, role: 'station' });
   st.type = 'station';
   st.maxSpeed = 0;
-  st.spin = 0.02;
+  st.spin = 0.02; // same rotation for both types: same docking rules (#13)
   st.color = BLUE;
+  st.dockOffset = STATIONS[kind].dockOffset;
   g.station = st;
   g.entities.push(st);
   return st;
@@ -466,6 +494,8 @@ export function createGame(assets) {
     shipdata: assets.plists.shipdata,
     parsedMeshes: assets.parsedMeshes,
     shipyard: assets.plists.shipyard,
+    // per-system world data: which station type the system gets (#13)
+    planetinfo: assets.plists.planetinfo || {},
     // the station's commodities, from the real trade-goods.plist
     goods: goodsFrom(assets.plists['trade-goods']),
     markets: {}, // systemIndex -> generated market, mutated by trades
@@ -788,18 +818,14 @@ export function buyEquipment(g, key) {
 }
 
 // --- real docking (MISSING-FEATURES #6) -----------------------------------
-// The Coriolis slot: a sleeve on the station's +Z face (shipdata places the
-// dock subentity at 500.2561 m), carried round by the station's spin. With
-// easy mode off, docking is judged against this frame — approach along its
-// axis, rolled with the station, under the 120 m/s limit.
-const DOCK_OFFSET = [0, 0, 500.2561];
-const SLOT_HALF = 130;   // half-width of the Coriolis slot, metres
-const DOCK_SPEED = 120;  // m/s, the docking limit from the original
+// The slot frame and its constants (DOCK_OFFSET, SLOT_HALF, DOCK_SPEED) live
+// with the station types above: the sleeve is on the station's +Z face and
+// turns with its spin, so dockFrame() reads the offset off the station.
 
 function dockFrame(g) {
   const st = g.station;
   return {
-    pos: add(st.pos, quatRotate(st.quat, DOCK_OFFSET)),
+    pos: add(st.pos, quatRotate(st.quat, st.dockOffset || DOCK_OFFSET)),
     normal: quatRotate(st.quat, [0, 0, 1]), // out of the slot
     up: quatRotate(st.quat, [0, 1, 0]),     // rolls with the station
   };
