@@ -57,12 +57,19 @@ gyro, keyboard/mouse and gamepad.
 - **Thargoid warship** on its real mesh and texture: hostile, fast, it never
   breaks off and shoots missiles often. The Constrictor and the Adder join the
   pirate and trader rosters — 14 ship types in the sky now.
+- **Missions**: the Galactic Navy chain — hunt down the stolen Constrictor,
+  then carry Thargoid intelligence across three jumps. The briefing is on the
+  docked screen with an ACCEPT button, progress shows in the HUD messages
+  across hyperspace jumps, and each job pays cash on completion
+  (`web/src/missions.js`).
 
 ## Not ported yet
 
-- Mission scripts from `Resources/Scripts/*.js` — skipped: they need Oolite's
-  own JavaScript engine (ship/player host objects, mission variables, priority
-  AI), which this port does not have.
+- Mission scripts from `Resources/Scripts/*.js` as scripts — skipped: they need
+  Oolite's own JavaScript engine (ship/player host objects, mission variables,
+  priority AI), which this port does not have. The Galactic Navy chain itself
+  is hand-rolled as plain data instead (see below, #7); the rest of Oolite's
+  script content is untouched.
 - 32 of the 41 equipment types — the shop sells nine of them (cargo bay,
   extra energy unit, shield boosters, docking computer, fuel scoops, escape
   pod, fuel injectors, E.C.M., missiles), while lasers, cloak, passenger
@@ -136,6 +143,7 @@ node tests/test-status.mjs    # status screen rows: system, fuel, cash, legal st
 node tests/test-view.mjs      # camera / coordinate-frame convention
 node tests/test-touch.mjs     # double-tap zoom guard
 node tests/test-save.mjs      # auto-save round trip, bad saves rejected, manual slots
+node tests/test-missions.mjs  # Navy missions: offer order, accept, jump progress, reward, save
 python3 -m http.server 8099 --directory web   # local server
 # headless smoke test (console errors + screenshots):
 google-chrome --headless=new --virtual-time-budget=6000 --screenshot=/tmp/shot.png \
@@ -149,6 +157,10 @@ google-chrome --headless=new --enable-logging=stderr --virtual-time-budget=20000
   --user-data-dir=/tmp/oolite-slots-smoke --screenshot=/tmp/slots.png \
   'http://127.0.0.1:8099/?autostart=1&dock=1&slots=1' 2>&1 | grep CONSOLE
 # ?slots=save / ?slots=load open one menu and leave it up for a screenshot
+# the Navy mission briefing on the docked screen, and ACCEPT pressed for you:
+google-chrome --headless=new --virtual-time-budget=9000 --window-size=760,900 \
+  --user-data-dir=/tmp/oolite-mission --screenshot=/tmp/mission.png \
+  'http://127.0.0.1:8099/?autostart=1&dock=1&mission=1' 2>&1 | grep CONSOLE
 # easy mode and the 10 s launch ride must stay console-clean too:
 google-chrome --headless=new --virtual-time-budget=6000 --screenshot=/tmp/easy.png \
   'http://127.0.0.1:8099/?autostart=1&easy=1'

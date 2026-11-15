@@ -7,6 +7,7 @@
 // fresh.
 
 import { spawnPirate, spawnTrader, spawnPolice } from './game.js';
+import { missionState, MISSION_IDS } from './missions.js';
 
 export const SAVE_KEY = 'oolite-browser.save';
 export const SAVE_VERSION = 1;
@@ -53,6 +54,19 @@ function validate(data) {
   if (typeof p.shipKey !== 'string' || !p.shipKey) return null;
   if (!validCargo(p.cargo)) return null;
   for (const f of PLAYER_FIELDS) if (!num(p[f])) return null;
+  // Mission state is optional so saves written before it existed still load;
+  // when present every id must be a known mission and the counts sane, or the
+  // whole save is refused (same rule as crime above).
+  let mission = missionState();
+  if (data.mission !== undefined) {
+    const m = data.mission;
+    const known = (id) => typeof id === 'string' && MISSION_IDS.includes(id);
+    if (!m || typeof m !== 'object' || Array.isArray(m)) return null;
+    if (m.active !== null && !known(m.active)) return null;
+    if (!num(m.jumps) || m.jumps < 0) return null;
+    if (!Array.isArray(m.done) || !m.done.every(known)) return null;
+    mission = { active: m.active, jumps: m.jumps, done: [...new Set(m.done)] };
+  }
   const player = { shipKey: p.shipKey, cargo: { ...p.cargo } };
   for (const f of PLAYER_FIELDS) player[f] = p[f];
   // Extra missile pylons are optional so saves written before they existed
@@ -69,7 +83,7 @@ function validate(data) {
     for (const [k, v] of Object.entries(p.equipment)) if (v === true) player.equipment[k] = true;
   }
   return { v: SAVE_VERSION, phase: data.phase, systemIndex: data.systemIndex,
-    kills: data.kills, crime, player };
+    kills: data.kills, crime, mission, player };
 }
 
 export function saveData(g) {
@@ -78,7 +92,9 @@ export function saveData(g) {
   for (const f of PLAYER_FIELDS) player[f] = p[f];
   player.equipment = { ...p.equipment };
   return { v: SAVE_VERSION, phase: g.phase, systemIndex: g.systemIndex,
-    kills: g.kills, crime: g.crime, player };
+    kills: g.kills, crime: g.crime,
+    mission: { active: g.mission.active, jumps: g.mission.jumps, done: [...g.mission.done] },
+    player };
 }
 
 export function serializeSave(g) {
@@ -105,6 +121,7 @@ export function applySave(g, data) {
   g.systemIndex = d.systemIndex;
   g.kills = d.kills;
   g.crime = d.crime;
+  g.mission = d.mission;
   Object.assign(g.player, d.player);
 
   g.entities = g.entities.filter((e) => e.type === 'station');

@@ -11,8 +11,9 @@ import {
   createGame, stepGame, launch, launchTrip, marketFor, buyGood, sellGood, cargoUsed,
   shipyardFor, tradeInValue, buyShip, shipName, zoomScanner,
   equipmentFor, buyEquipment, spawnThargoid, SYSTEMS, rankName, legalStatus,
-  SUN_POS, SUN_R,
+  pushMessage, SUN_POS, SUN_R,
 } from './game.js';
+import { missionView, acceptMission } from './missions.js';
 import { hasSave, hasAnySlot, saveGame, loadGame, defaultStorage, slotInfo } from './save.js';
 import { openSlots, closeSlots } from './slots.js';
 import { toggleChart, closeChart, isChartOpen } from './chart.js';
@@ -230,6 +231,37 @@ function playEvents() {
 }
 
 // ---------------------------------------------------------------------------
+// The Navy mission briefing on the docked screen (#7): the offer with its
+// ACCEPT button, or the run under way with its progress line.
+function buildMissionScreen() {
+  const box = el('dock-mission');
+  const view = missionView(game);
+  if (!view) { box.classList.add('hidden'); box.textContent = ''; return; }
+  box.classList.remove('hidden');
+  box.textContent = '';
+  const title = document.createElement('div');
+  title.className = 'mtitle';
+  title.textContent = view.def.title;
+  const text = document.createElement('div');
+  text.textContent = view.text;
+  box.append(title, text);
+  if (view.mode === 'offer') {
+    const accept = document.createElement('button');
+    accept.textContent = 'ACCEPT MISSION';
+    accept.addEventListener('click', () => {
+      const got = acceptMission(game, view.def.id);
+      if (got) pushMessage(game, `MISSION ACCEPTED — ${got.title}`, GREEN, 6);
+      playEvents();
+      buildMarketScreen();
+    });
+    box.append(accept);
+  }
+}
+
+// The HUD's green, for the accept confirmation message (game.js keeps its
+// palette module-private).
+const GREEN = [0, 1, 0];
+
 function buildMarketScreen() {
   const sys = SYSTEMS[game.systemIndex];
   el('dock-title').textContent = `${sys.name} — STATION`;
@@ -249,6 +281,8 @@ function buildMarketScreen() {
     `Legal status: ${legalStatus(game.crime)}\n` +
     `${sys.description}\n` +
     `Cargo hold:\n${cargoLines}`;
+
+  buildMissionScreen(); // the Navy briefing sits between status and tabs (#7)
 
   const table = el('market');
   // Equipment sits under the commodities in the same table: nine items at
@@ -677,6 +711,26 @@ async function main() {
         : el('btnLoad');
       if (btn) { clearInterval(t); btn.click(); }
       else if (++tries > 400) { clearInterval(t); console.error(`slots smoke: no ${slotsStep} menu`); }
+    }, 25);
+  }
+
+  // ?mission=1 — headless smoke for the Navy briefing (#7): wait until docked,
+  // press ACCEPT MISSION, and report what the panel shows afterwards. Any
+  // failure is a console.error, which the smoke run greps for.
+  if (query.has('mission')) {
+    let tries = 0;
+    const t = setInterval(() => {
+      if (game.phase !== 'docked' && ++tries < 400) return;
+      clearInterval(t);
+      const accept = el('dock-mission').querySelector('button');
+      if (game.phase !== 'docked' || !accept) {
+        console.error('mission smoke: no ACCEPT button on the docked screen');
+        return;
+      }
+      accept.click();
+      const view = missionView(game);
+      if (!view || view.mode !== 'active') console.error('mission smoke: accept did not start the mission');
+      else console.log(`mission smoke: accepted ${game.mission.active}`);
     }, 25);
   }
 

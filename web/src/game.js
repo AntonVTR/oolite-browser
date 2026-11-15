@@ -9,6 +9,9 @@ import {
   norm, sub, add, scale, dot, cross, len, dist,
 } from './math.js';
 import { makeGalaxy, distanceLy } from './galaxy.js';
+import {
+  missionState, missionSpawnKey, missionOnJump, missionOnKill, missionOnDock,
+} from './missions.js';
 
 // The real 256-system Oolite galaxy (galaxy 1), generated from the upstream
 // seed — system 0 is Tibedied, Lave is system 7, as in the original game.
@@ -200,8 +203,9 @@ function spawnAhead(g, rangeMin, rangeMax) {
 }
 
 export function spawnPirate(g) {
-  // Round-robin so every combat ship in the roster actually shows up.
-  const key = PIRATE_KEYS[g.pirateSeq++ % PIRATE_KEYS.length];
+  // Round-robin so every combat ship in the roster actually shows up — but a
+  // Navy hunt (#7) puts its stolen ship in the sky instead.
+  const key = missionSpawnKey(g) || PIRATE_KEYS[g.pirateSeq++ % PIRATE_KEYS.length];
   const d = def(g, key);
   // Most shipdata templates carry no bounty; scale those by hull energy.
   const bounty = d.bounty || Math.round((d.max_energy || 256) / 5);
@@ -280,6 +284,7 @@ export function createGame(assets) {
     dialPitch: 0,
     kills: 0,
     crime: 0, // legal status points: 0 clear, >= 1 offender, >= 51 fugitive
+    mission: missionState(), // the Galactic Navy chain (#7), travels in the save
     pirateSeq: 0,
     traderSeq: 0,
     equipmentTypes: assets.plists.equipment || [], // real equipment.plist rows
@@ -685,6 +690,9 @@ export function dock(g) {
   }
   g.events.push({ type: 'docking' });
   pushMessage(g, `DOCKED AT ${SYSTEMS[g.systemIndex].name}`, GREEN, 6);
+  // docking delivers a carried Navy mission (#7)
+  const missionMsg = missionOnDock(g);
+  if (missionMsg) pushMessage(g, missionMsg, GREEN, 6);
 }
 
 // The launch trip (MISSING-FEATURES #6): ten seconds riding out through the
@@ -855,6 +863,9 @@ export function jump(g, selected) {
   spawnTrader(g);
   spawnPolice(g);
   pushMessage(g, `WITCHSPACE — ARRIVED AT ${SYSTEMS[g.systemIndex].name}`, GREEN, 6);
+  // a carried Navy mission counts this jump (#7)
+  const missionMsg = missionOnJump(g);
+  if (missionMsg) pushMessage(g, missionMsg, GREEN, 6);
   return true;
 }
 
@@ -908,6 +919,8 @@ function damageShip(g, ship, amount, fromPlayer) {
     else if (ship.role === 'police') addCrime(g, CRIME_POLICE_KILL);
     g.player.credits += ship.bounty;
     pushMessage(g, `SHIP DESTROYED — ${ship.bounty} CR BOUNTY`, YELLOW, 6);
+    const missionMsg = missionOnKill(g, ship);
+    if (missionMsg) pushMessage(g, missionMsg, GREEN, 6);
   }
 }
 
