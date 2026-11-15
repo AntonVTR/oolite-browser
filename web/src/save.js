@@ -145,6 +145,9 @@ export function applySave(g, data) {
   g.weaponOffline = 0;
   g.weaponCooldown = 0;
   g.shieldCooldown = 0;
+  g.heatTick = 0;
+  g.energyLow = false;
+  g.player.cabinTemp = 60; // the cabin is not in the save: loads start cool
   g.dockHint = 0;
   g.launchSeq = 0; // never resume a launch ride from a save
   g.ecmTime = 0;

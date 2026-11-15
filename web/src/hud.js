@@ -9,6 +9,9 @@ const GREEN = [0, 1, 0];
 const DARKGREEN = [0, 0.75, 0];
 const BLUE = [0, 0, 1];
 const WHITE = [1, 1, 1];
+// Magenta "critical" flash colour for a dial in its last band (Oolite's
+// redplus_color in HeadUpDisplay.m).
+const REDPLUS = [1, 0, 0.5];
 
 // Height in HUD units of the bottom gauge band: the topmost dial with
 // y_origin = -1 reaches 101 units up from the bottom edge. main.js keeps the
@@ -218,18 +221,34 @@ export class Hud {
     const defY = which === 'cabin' ? -189 : -199;
     const p = this.place(info, -200, defY, 80, 8);
     const g = this.g;
-    const value = which === 'cabin'
-      ? (g.player.cabinTemp - 60) / (256 - 60)
-      : g.player.weaponTemp / 256;
+    // Oolite's bands (drawTempBar:/drawWeaponTempBar: in HeadUpDisplay.m):
+    // over 0.80 red, over 0.25 yellow — and the cabin dial flashes magenta
+    // past 0.90 while it is cooking.
+    const value = (which === 'cabin' ? g.player.cabinTemp : g.player.weaponTemp) / 256;
     if (info.draw_surround) this.surround(p.x, p.y, p.w, p.h, GREEN, p.a);
-    const col = value > 0.85 ? RED : value > 0.5 ? YELLOW : GREEN;
+    let col = GREEN;
+    if (value > 0.8) col = RED;
+    else if (value > 0.25) col = YELLOW;
+    if (which === 'cabin' && value > 0.9 && this.flashOn()) col = REDPLUS;
     this.bar(p.x, p.y, p.w, p.h, value, col, p.a);
   }
 
   drawAltitudeBar(info) {
     const p = this.place(info, -200, -209, 80, 8);
     if (info.draw_surround) this.surround(p.x, p.y, p.w, p.h, GREEN, p.a);
-    this.bar(p.x, p.y, p.w, p.h, this.g.altitudeFraction, GREEN, p.a);
+    // Oolite's bands (drawAltitudeBar:): under 0.25 red — flashing magenta
+    // under 0.10 — under 0.75 yellow, above that green.
+    const alt = this.g.altitudeFraction;
+    let col = GREEN;
+    if (alt < 0.25) col = RED;
+    else if (alt < 0.75) col = YELLOW;
+    if (alt < 0.1 && this.flashOn()) col = REDPLUS;
+    this.bar(p.x, p.y, p.w, p.h, alt, col, p.a);
+  }
+
+  // The 4 Hz on/off flash of a dial in its critical band: (int)(time*4) & 1.
+  flashOn() {
+    return (Math.floor(this.g.time * 4) & 1) === 1;
   }
 
   // The fuel scoop status dial (HeadUpDisplay.m drawScoopStatus:): three
@@ -308,7 +327,12 @@ export class Hud {
     else if (g.alert === 'yellow') col = YELLOW;
     const ctx = this.ctx;
     const r = this.L(Math.max(p.w, p.h) / 2);
-    ctx.fillStyle = this.rgba(col, p.a);
+    // Flash like HeadUpDisplay.m drawStatusLight: one breath per second at
+    // 0.333 * (2 + sin(time * 2.5 * condition)) — green slow, yellow faster,
+    // red fastest (ALERT_CONDITION_GREEN/YELLOW/RED = 1/2/3).
+    const cond = g.alert === 'red' ? 3 : g.alert === 'yellow' ? 2 : 1;
+    const flash = 0.333 * (2 + Math.sin(g.time * 2.5 * cond));
+    ctx.fillStyle = this.rgba(col, p.a * flash);
     ctx.beginPath();
     ctx.arc(this.X(p.x), this.Y(p.y), r, 0, Math.PI * 2);
     ctx.fill();
