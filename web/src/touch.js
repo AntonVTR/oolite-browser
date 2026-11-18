@@ -78,6 +78,20 @@ export function grabsStick(e, w, overRadar) {
   return !(overRadar && overRadar(e.clientX, e.clientY));
 }
 
+// Software debounce for the one-shot buttons: one accepted press per `ms` on
+// this control, so a digitizer ghost tap cannot fire the action twice (a
+// double TGT cycle, a double JUMP request — the keyboard guards the same way
+// with e.repeat). Exported for the buttons main.js wires itself and tests.
+export function debounce(fn, ms = 250) {
+  let last = -Infinity;
+  return (...args) => {
+    const now = performance.now();
+    if (now - last < ms) return;
+    last = now;
+    fn(...args);
+  };
+}
+
 function makeHoldButton(node, onDown, onUp) {
   let id = null;
   const release = (e) => {
@@ -86,6 +100,7 @@ function makeHoldButton(node, onDown, onUp) {
     onUp();
   };
   node.addEventListener('pointerdown', (e) => {
+    if (id !== null) return; // debounce: a ghost repeat of a held press changes nothing
     id = e.pointerId;
     try { node.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
     onDown(true);
@@ -100,7 +115,8 @@ function makeHoldButton(node, onDown, onUp) {
 }
 
 function makeTapButton(node, onTap) {
-  node.addEventListener('pointerdown', (e) => { e.preventDefault(); onTap(); });
+  const press = debounce(onTap);
+  node.addEventListener('pointerdown', (e) => { e.preventDefault(); press(); });
 }
 
 export function setupTouchControls({ onGyroToggle, overRadar }) {

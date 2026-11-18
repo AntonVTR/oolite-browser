@@ -223,7 +223,7 @@ export class Renderer {
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
 
     this.beamBuf = gl.createBuffer();
-    this.beamVerts = new Float32Array(16); // 4 verts * (3 pos + 2 uv)
+    this.beamVerts = new Float32Array(20); // 4 verts * (3 pos + 2 uv)
 
     gl.enable(gl.DEPTH_TEST);
     gl.depthFunc(gl.LEQUAL);

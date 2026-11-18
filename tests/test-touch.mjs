@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const { blocksDoubleTap, grabsStick } = await import(join(root, 'web/src/touch.js'));
+const { blocksDoubleTap, grabsStick, debounce } = await import(join(root, 'web/src/touch.js'));
 
 const control = { closest: () => ({}) };   // stands in for <button>/<a>/<input>
 const surface = { closest: () => null };   // canvas, market background
@@ -27,5 +27,15 @@ assert.equal(grabsStick({ pointerType: 'mouse', clientX: 100, clientY: 300, targ
   false, 'mouse keeps steering through the canvas');
 assert.equal(grabsStick(touchAt(100), 800, () => true), false, 'a radar tap zooms instead');
 assert.equal(grabsStick(touchAt(100), 800, () => false), true, 'off-radar still grabs');
+
+// Software debounce: one accepted press per window per control, so a ghost
+// pointerdown cannot fire a one-shot (TGT, JUMP, LASER) twice.
+let presses = 0;
+const press = debounce(() => { presses++; }, 40);
+press(); press(); press();
+assert.equal(presses, 1, 'a ghost double-tap inside the window is swallowed');
+await new Promise((r) => setTimeout(r, 60));
+press();
+assert.equal(presses, 2, 'a press after the window goes through');
 
 console.log('test-touch: ok');

@@ -137,6 +137,10 @@ assert.ok(!g.entities.includes(victim), 'wreck removed from the world');
 
 // ---- taking damage --------------------------------------------------------
 g.entities = g.entities.filter((e) => e.type === 'station');
+// Step out of the protection zone for this fight: a pirate staged inside it
+// stands down (and calls the police out), so there would be no incoming fire.
+const home = g.player.pos;
+g.player.pos = [0, 0, 15000];
 g.player.fwdShield = g.player.maxShield;
 g.player.aftShield = g.player.maxShield;
 g.player.energy = g.player.maxEnergy;
@@ -154,6 +158,7 @@ assert.ok(
   g.player.energy < g.player.maxEnergy || g.player.fwdShield < g.player.maxShield,
   'incoming fire drains shields/energy'
 );
+g.player.pos = home; // back to the launch framing for the scenes below
 
 // ---- missiles: launch, track, hit -----------------------------------------
 g.entities = g.entities.filter((e) => e.type === 'station');

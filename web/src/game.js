@@ -1443,7 +1443,7 @@ function fireLaser(g) {
     if (len(closest) <= e.radius * 1.6) { best = e; bestT = t; }
   }
   const end = add(origin, scale(fwd, best ? bestT : range));
-  g.shots.push({ from: origin, to: end, life: 0.12, hostile: false });
+  g.shots.push({ from: origin, to: end, life: 0.12, hostile: false, hit: !!best });
   g.events.push({ type: 'laser' });
   g.weaponCooldown = spec.cooldown;
   g.weaponTemp = Math.min(300, g.weaponTemp + spec.temp);
@@ -1978,6 +1978,7 @@ function engageNPC(e, g, dt, foe) {
       life: 0.12,
       hostile: foe === p, // only a shot at the commander can hurt the player
       npc: foe !== p,     // …and amber on the scanner beam for the rest
+      hit: hits,
     });
     g.events.push({ type: 'laser' });
     if (hits) {

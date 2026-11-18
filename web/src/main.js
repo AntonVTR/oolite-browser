@@ -5,7 +5,7 @@ import { Renderer, viewQuat } from './render.js';
 import { Hud, BOTTOM_BAND } from './hud.js';
 import { GameAudio } from './audio.js';
 import { setupKeyboard, setupMouse, setupGamepad, updateCtrl } from './controls.js';
-import { setupTouchControls, clearTouchEdges, syncThrottleKnob } from './touch.js';
+import { setupTouchControls, clearTouchEdges, syncThrottleKnob, debounce } from './touch.js';
 import { loadAssets, SHIP_DEFS, resolveTextureName } from './assets.js';
 import {
   createGame, stepGame, launch, launchTrip, marketFor, buyGood, sellGood, cargoUsed,
@@ -172,6 +172,11 @@ function renderScene() {
       : s.npc ? [1, 0.8, 0.2, 0.95]
       : [0.4, 1, 0.4, 0.95];
     renderer.drawBeam(s.from, s.to, 3.5, col);
+    // The light of the shot: a flash at the gun and a spark where it lands.
+    // Billboards carry screen size of their own, so they show even when the
+    // beam is fired straight ahead — its ribbon then projects to a point.
+    renderer.drawBillboard(s.from, 5, 5, boomTex, col);
+    if (s.hit) renderer.drawBillboard(s.to, 14, 14, boomTex, col);
   }
   // missiles: a bright motor trail with a glowing tip
   for (const m of game.missiles) {
@@ -657,9 +662,12 @@ async function main() {
   btnView.id = 'btnView';
   btnView.className = 'ctl';
   btnView.textContent = 'VIEW';
+  const viewPress = debounce(() => {
+    if (game.phase === 'flight') cycleView(game);
+  });
   btnView.addEventListener('pointerdown', (e) => {
     e.preventDefault();
-    if (game.phase === 'flight') cycleView(game);
+    viewPress();
   });
   el('touch').querySelector('.buttons').insertBefore(btnView, el('btnFire'));
 
@@ -669,9 +677,12 @@ async function main() {
   btnLaser.id = 'btnLaser';
   btnLaser.className = 'ctl';
   btnLaser.textContent = 'LASER';
+  const laserPress = debounce(() => {
+    if (game.phase === 'flight') cycleLaserMount(game);
+  });
   btnLaser.addEventListener('pointerdown', (e) => {
     e.preventDefault();
-    if (game.phase === 'flight') cycleLaserMount(game);
+    laserPress();
   });
   el('touch').querySelector('.buttons').insertBefore(btnLaser, el('btnFire'));
 
@@ -712,9 +723,10 @@ async function main() {
     hideOverlays();
     el('touch').classList.remove('hidden');
   });
+  const jumpPress = debounce(() => { jumpRequested = true; });
   el('btnJump').addEventListener('pointerdown', (e) => {
     e.preventDefault();
-    jumpRequested = true;
+    jumpPress();
   });
 
   // Loading is done: hand over to the title screen.
