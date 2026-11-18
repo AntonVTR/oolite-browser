@@ -93,17 +93,18 @@ assert.strictEqual(sightShuttle.energy, sightShuttle.maxEnergy, 'without being h
 assert.strictEqual(sightShuttle.speed, sightShuttle.maxSpeed, 'and away at full throttle');
 
 // ---- pirates attack the shipping, not only the commander -------------------
-// The commander 15 km off: inside the 20 km despawn limit, outside the 8 km
-// engagement range, so the pirate has nothing but the hauler to fight.
+// The hunt plays out past the station's 5 km protection zone (pirates stand
+// down inside it); the commander 15 km off is outside the 8 km engagement
+// range, so the pirate has nothing but the hauler to fight.
 const huntG = newGame();
 huntG.player.pos = [15000, 0, 0];
 standStill(huntG);
 const prey = spawnTrader(huntG);
-prey.pos = [0, 0, 0];
+prey.pos = [24000, 0, 0];
 prey.quat = [0, 0, 0, 1];
 prey.energy = 30; // one volley from wrecked, so the kill is quick
 const hunter = spawnPirate(huntG);
-hunter.pos = [0, 0, 2000];
+hunter.pos = [24000, 0, 2000];
 hunter.quat = [0, 1, 0, 0]; // already turned onto the hauler
 run(huntG, 5);
 assert.ok(!prey.alive, 'the pirate destroys the hauler');
@@ -130,6 +131,35 @@ assert.ok(raided.alive && raided.energy < raided.maxEnergy,
   'the viper shoots the pirate instead of you');
 assert.ok(beatG.shots.some((s) => s.npc && !s.hostile), 'with an NPC-on-NPC shot');
 assert.ok(!beatG.shots.some((s) => s.hostile), 'and never a shot at the commander');
+
+// ---- the station's protection zone: no pirate fire, the police come out ----
+// newGame leaves the commander on the launch framing — 3.2 km out, inside
+// the 5 km zone, with no viper in the sky.
+const zoneG = newGame();
+standStill(zoneG);
+const raider = spawnPirate(zoneG);
+raider.pos = ahead(zoneG, 2000); // inside the zone, right on top of them
+raider.quat = [0, 1, 0, 0];      // turned onto the commander, trigger ready
+stepGame(zoneG, noInput(), 1 / 60);
+assert.ok(raider.alive && raider.hostile, 'the pirate stays hostile at the station');
+assert.ok(!zoneG.shots.some((s) => s.hostile), 'but fires nothing inside the protection zone');
+assert.ok(zoneG.entities.some((e) => e.role === 'police'),
+  'the police come out for the intruder');
+// …and destroy it while it breaks off with no foe to pick
+raider.energy = 70; // two viper volleys from wrecked, so the kill is quick
+for (let i = 0; i < 60 * 60 && raider.alive; i++) stepGame(zoneG, noInput(), 1 / 60);
+assert.ok(!raider.alive, 'the police destroy the pirate in the zone');
+
+// outside the zone nothing changes: the same setup, the commander moved
+// past the boundary, and the pirate shoots on the first frame
+const openG = newGame();
+standStill(openG);
+openG.player.pos = [0, 0, -9000]; // 9 km out: both past the 5 km line
+const openRaider = spawnPirate(openG);
+openRaider.pos = [0, 0, -7900];   // 1.1 km off their tail, outside the zone
+openRaider.quat = [0, 1, 0, 0];   // facing back down the -Z line at them
+stepGame(openG, noInput(), 1 / 60);
+assert.ok(openG.shots.some((s) => s.hostile), 'in open space the pirate still attacks');
 
 // ---- Thargoids attack the shipping too -------------------------------------
 const alienG = newGame();

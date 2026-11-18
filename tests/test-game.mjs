@@ -308,6 +308,9 @@ for (const s of pirates) {
 g.entities = g.entities.filter((e) => e.type === 'station');
 
 // badly damaged pirates break off instead of fighting to the death
+// (out past the station's 5 km protection zone — inside it pirates stand
+// down, which test-npcs.mjs covers with the station rule)
+g.player.pos = [0, 0, 15000];
 const wounded = spawnPirate(g);
 wounded.pos = [g.player.pos[0], g.player.pos[1], g.player.pos[2] + 2500];
 wounded.quat = [0, 0, 0, 1];
@@ -593,6 +596,7 @@ assert.strictEqual(g.systemIndex, stay, 'stays put when the jump fails');
 // ---- death ----------------------------------------------------------------
 g.entities = g.entities.filter((e) => e.type === 'station');
 g.player.fuel = 70;
+g.player.pos = [0, 0, 20000]; // out past the 5 km zone: there the pirate shoots
 g.player.fwdShield = 0;
 g.player.aftShield = 0;
 g.player.energy = 1;
@@ -697,6 +701,7 @@ assert.strictEqual(comp.autoDock, false, 'the autopilot lets go on docking');
 const pod = quiet();
 pod.player.equipment.EQ_ESCAPE_POD = true;
 pod.player.cargo = { food: 4 };
+pod.player.pos = [0, 0, 20000]; // out past the 5 km zone: there the pirate shoots
 pod.player.fwdShield = 0;
 pod.player.aftShield = 0;
 pod.player.energy = 1;

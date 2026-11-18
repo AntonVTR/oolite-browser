@@ -1816,9 +1816,13 @@ function pickFoe(g, e) {
         && (PEACEFUL_ROLES.includes(o.role) || o.role === 'police')) see(o, ENGAGE_RANGE);
     }
   } else {
-    see(p, ENGAGE_RANGE);
+    // Pirates do not fight inside the station's protection zone — the law
+    // owns that sky, and a pirate in there draws the police (stepGame).
+    if (inProtectionZone(g, e.pos)) return null;
+    if (!inProtectionZone(g, p.pos)) see(p, ENGAGE_RANGE);
     for (const o of g.entities) {
-      if (o.type === 'ship' && o !== e && PEACEFUL_ROLES.includes(o.role)) see(o, ENGAGE_RANGE);
+      if (o.type === 'ship' && o !== e && PEACEFUL_ROLES.includes(o.role)
+        && !inProtectionZone(g, o.pos)) see(o, ENGAGE_RANGE);
     }
   }
   let best = null;
@@ -1921,6 +1925,11 @@ function updateNPC(e, g, dt) {
 
   const foe = pickFoe(g, e);
   if (!foe) {
+    // A pirate stopped by the protection zone does not coast through it on
+    // a collision course with whoever it was hunting — it breaks off and
+    // leaves, which also lets the viper line up on its tail.
+    if (e.role === 'pirate'
+      && (inProtectionZone(g, e.pos) || inProtectionZone(g, p.pos))) e.breakingOff = true;
     // nobody in range worth fighting: keep the sky moving on a straight line
     if (d > 20000) { e.alive = false; return; }
     integrate(e, dt, 0.5);
@@ -2235,6 +2244,15 @@ export function stepGame(g, input, dt) {
   const hostiles = ships.filter((e) => e.hostile).length;
   const police = ships.filter((e) => e.role === 'police').length;
   const peaceful = ships.filter((e) => !e.hostile && e.role !== 'police').length;
+  // A pirate inside the station's protection zone calls the police out, clean
+  // record or not: they come from the station onto the intruder and destroy
+  // it there (pickFoe makes the pirate stand down in that sky).
+  const intruder = ships.find((e) => e.role === 'pirate' && inProtectionZone(g, e.pos));
+  if (intruder && police === 0) {
+    const cop = spawnPolice(g);
+    // halfway out to the intruder: always inside the viper's 10 km reach
+    cop.pos = add(g.station.pos, scale(sub(intruder.pos, g.station.pos), 0.5));
+  }
   if (g.witchspace) {
     // stranded: only the Thargoids are out here, and they keep coming (#10)
     if (g.spawnTimer <= 0 && hostiles < 3) {
