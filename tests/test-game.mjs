@@ -787,6 +787,30 @@ easyFast.player.speed = 300;
 stepGame(easyFast, { dockRequest: true }, 1 / 60);
 assert.strictEqual(easyFast.phase, 'flight', 'a hot DOCK request is refused');
 
+// ---- contact follows the hull, not a sphere of its vertex radius -----------
+// The Coriolis mesh spans 500 m to its faces but 703 m to its corners, and
+// the old test used that corner radius as a sphere: the "hull" reached 200 m
+// past the docking face, so an approach was colliding with empty space and
+// got bounced before it ever reached the slot.
+const air = quiet();
+air.player.pos = [0, 0, 700]; // 200 m in front of the face, inside the old sphere
+air.player.quat = [Math.SQRT1_2, Math.SQRT1_2, 0, 0]; // rolled: the old rules scraped this
+air.player.speed = 0;
+air.player.throttle = 0;
+const airShield = air.player.fwdShield;
+run(air, noInput(), 3);
+assert.strictEqual(air.phase, 'flight', 'the ship is left alone out here');
+assert.ok(air.player.fwdShield >= airShield, 'empty space in front of the slot does not bounce you');
+assert.ok(air.player.pos[2] > 500, 'and it never gets shoved through the hull');
+
+// …but the face itself still stops a rolled ship: the body reaches the
+// 500 m face from 74 m out, and a rolled attitude there is a scrape.
+air.player.pos = [0, 0, 560];
+run(air, noInput(), 2);
+assert.ok(air.player.fwdShield < airShield, 'the face still scrapes a rolled approach');
+assert.ok(air.player.pos[2] > 500, 'the shove exits through the mouth, not the hull');
+assert.strictEqual(air.phase, 'flight', 'and it still refuses to dock');
+
 // ---- the launch ride (#6) --------------------------------------------------
 // Ten seconds in the tube, then the old launch framing: the ship ends at the
 // path's end in the station frame, nose back along the path with the station

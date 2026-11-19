@@ -5,7 +5,7 @@
 // Units are Oolite's: metres, seconds, degrees-ish rates in rad/s.
 
 import {
-  quatMul, quatAxisAngle, quatNormalize, quatRotate, quatFromBasis,
+  quatMul, quatAxisAngle, quatNormalize, quatRotate, quatConjugate, quatFromBasis,
   norm, sub, add, scale, dot, cross, len, dist,
 } from './math.js';
 import { galaxySystems, distanceLy } from './galaxy.js';
@@ -233,6 +233,12 @@ export function spawnStation(g) {
   st.spin = 0.02; // same rotation for both types: same docking rules (#13)
   st.color = BLUE;
   st.dockOffset = STATIONS[kind].dockOffset;
+  // Contact is judged against the hull planes, not a sphere (hullTouch): the
+  // hull mesh draws every face but the docking one — the faceplate subentity
+  // covers it — so the sleeve's own plane caps the mouth.
+  const hull = hullPlanes(g, kind);
+  if (hull) hull.push([0, 0, 1, st.dockOffset[2]]);
+  st.hull = hull;
   g.station = st;
   g.entities.push(st);
   return st;
@@ -962,6 +968,64 @@ function lane(g) {
 }
 
 const linedUp = (l) => l.lat < SLOT_HALF && l.facing > 0.9 && l.roll > 0.85;
+
+// --- station contact ---------------------------------------------------------
+// The station hull as inward half-spaces in its own frame. Both station
+// meshes are convex, so their facet planes bound them exactly — flipped to
+// keep the station's centre inside, since a mesh face can wind either way.
+// shortcut: the plane set is built once per station; a concave station mesh
+// would need the real convex-hull test instead.
+function hullPlanes(g, kind) {
+  const m = g.parsedMeshes && g.parsedMeshes[kind];
+  if (!m || !m.groups) return null;
+  const planes = [];
+  for (const grp of m.groups) {
+    const P = grp.positions;
+    for (let t = 0; t < P.length; t += 9) {
+      const ax = P[t], ay = P[t + 1], az = P[t + 2];
+      const ux = P[t + 3] - ax, uy = P[t + 4] - ay, uz = P[t + 5] - az;
+      const vx = P[t + 6] - ax, vy = P[t + 7] - ay, vz = P[t + 8] - az;
+      let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+      const L = Math.hypot(nx, ny, nz);
+      if (L < 1e-6) continue;
+      nx /= L; ny /= L; nz /= L;
+      let d = nx * ax + ny * ay + nz * az;
+      if (d < 0) { nx = -nx; ny = -ny; nz = -nz; d = -d; }
+      planes.push([nx, ny, nz, d]);
+    }
+  }
+  return planes.length ? planes : null;
+}
+
+// Contact: the ship's radius expands every plane. The old test was a sphere
+// of the mesh's vertex radius — 703 m on the Coriolis, whose faces sit at
+// 500 m — so the "hull" reached 200 m past the docking face and bounced
+// clean approaches off empty space before they reached the slot.
+function hullTouch(st, pos, pr) {
+  if (!st.hull) return dist(st.pos, pos) < st.radius + pr;
+  const rel = quatRotate(quatConjugate(st.quat), sub(pos, st.pos));
+  for (const h of st.hull) {
+    if (h[0] * rel[0] + h[1] * rel[1] + h[2] * rel[2] > h[3] + pr) return false;
+  }
+  return true;
+}
+
+// The shove after a scrape: out through the face the ship is actually
+// touching — the shallowest exit — so clipping the rim beside the slot throws
+// you back out of the mouth instead of through the hull.
+function hullExit(st, pos, pr) {
+  const rel = quatRotate(quatConjugate(st.quat), sub(pos, st.pos));
+  let bi = 0, bp = Infinity;
+  for (let i = 0; i < st.hull.length; i++) {
+    const h = st.hull[i];
+    const pen = h[3] + pr - (h[0] * rel[0] + h[1] * rel[1] + h[2] * rel[2]);
+    if (pen < bp) { bp = pen; bi = i; }
+  }
+  const h = st.hull[bi];
+  return add(st.pos, quatRotate(st.quat, [
+    rel[0] + h[0] * (bp + 1), rel[1] + h[1] * (bp + 1), rel[2] + h[2] * (bp + 1),
+  ]));
+}
 
 // A rough approach shreds the hold as well as the hull: one tonne of a
 // random good goes out through the breach.
@@ -2285,7 +2349,15 @@ export function stepGame(g, input, dt) {
   for (const e of g.entities) {
     if (e.type === 'cargo') continue; // loose cargo is scooped, not crashed into
     const d = dist(e.pos, p.pos);
-    if (d < e.radius + p.radius) {
+    const touch = e.type === 'station'
+      ? hullTouch(e, p.pos, p.radius)
+      : d < e.radius + p.radius;
+    // where a contact throws the ship: the station exits through its own
+    // face, everything else off the sphere it was hit on
+    const shove = () => (e.type === 'station' && e.hull)
+      ? hullExit(e, p.pos, p.radius)
+      : add(e.pos, scale(norm(sub(p.pos, e.pos)), e.radius + p.radius + 1));
+    if (touch) {
       // Real docking (easy mode off): a slow, rolled-in, lined-up approach
       // threads the slot instead of bouncing off the hull; anything else —
       // wrong attitude, too fast, or a hit anywhere else on the station —
@@ -2302,8 +2374,7 @@ export function stepGame(g, input, dt) {
         // One scrape = one hit and one shove; between hits the ship keeps
         // flying, so a misaligned approach can still recover and line up.
         if (g.hitCooldown <= 0) {
-          const away = norm(sub(p.pos, e.pos));
-          p.pos = add(e.pos, scale(away, e.radius + p.radius + 1));
+          p.pos = shove();
           p.speed *= 0.3;
           damagePlayer(g, 25);
           loseCargo(g);
@@ -2312,8 +2383,7 @@ export function stepGame(g, input, dt) {
         if (g.phase !== 'flight') return g;
         continue;
       }
-      const away = norm(sub(p.pos, e.pos));
-      p.pos = add(e.pos, scale(away, e.radius + p.radius + 1));
+      p.pos = shove();
       p.speed *= 0.3;
       if (e.type === 'station') {
         if (d < e.radius + p.radius + 60 && p.speed < 120) dock(g);

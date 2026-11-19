@@ -151,7 +151,11 @@ with the station and stay under 120 m/s to thread the sleeve — anything else
 costs 25 shield and a tonne of cargo per scrape, while the HUD coaches
 `SLOW TO <120 m/s TO DOCK` / `MATCH THE STATION ROTATION` /
 `LINE UP WITH THE DOCKING SLOT`. The old shortcut is exactly what the
-checkbox turns on. Without it, DOCK only answers with the Docking Computer
+checkbox turns on. Contact itself is judged against the hull's own planes
+(`hullTouch()` / `hullExit()` in `web/src/game.js`) — not a sphere of the
+mesh's corner radius, which reached 200 m past the docking face and bounced
+clean approaches off empty space before they ever reached the slot. Without
+the checkbox, DOCK only answers with the Docking Computer
 (#5) fitted, and that autopilot now flies the slot itself — swing wide onto
 the side you came in on, sit on the axis a kilometre out, match the roll,
 pace the speed to the slot — instead of aiming at the station's centre.
