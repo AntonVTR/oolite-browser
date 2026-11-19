@@ -103,10 +103,13 @@ export function setupGamepad() {
   const pad = ctrl.sources.pad;
   let jumpWasDown = false;
   let missileWasDown = false;
+  let targetWasDown = false;
   pad.poll = () => {
     const pads = navigator.getGamepads ? navigator.getGamepads() : [];
     const gp = pads && [...pads].find(Boolean);
-    if (!gp) { jumpWasDown = false; missileWasDown = false; return null; }
+    // Flags persist across a dropout: reconnecting while a button is still
+    // held must not fire an edge that no new press created.
+    if (!gp) return null;
     const ax = (i) => (typeof gp.axes[i] === 'number' ? gp.axes[i] : 0);
     const btn = (i) => !!(gp.buttons[i] && gp.buttons[i].pressed);
     const dz = (v) => (Math.abs(v) < 0.15 ? 0 : v);
@@ -116,6 +119,11 @@ export function setupGamepad() {
     const missileDown = btn(9);
     const missile = missileDown && !missileWasDown; // one missile per press
     missileWasDown = missileDown;
+    // One target cycle per press — level-triggering here made a held (or
+    // drifting) button hop the target every frame, which no debounce can catch.
+    const targetDown = btn(4) || btn(1);
+    const target = targetDown && !targetWasDown;
+    targetWasDown = targetDown;
     let roll = dz(ax(2));
     if (btn(14)) roll = -1; else if (btn(15)) roll = 1;
     let throttle = dz(-ax(3));
@@ -126,7 +134,7 @@ export function setupGamepad() {
       roll, throttle,
       fire: btn(7) || btn(0),
       injectors: btn(6) || btn(5) || btn(2),
-      target: btn(4) || btn(1),
+      target,
       jump,
       dock: btn(8),
       missile,
