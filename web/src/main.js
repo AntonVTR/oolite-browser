@@ -20,6 +20,7 @@ import { hasSave, hasAnySlot, saveGame, loadGame, defaultStorage, slotInfo } fro
 import { openSlots, closeSlots } from './slots.js';
 import { toggleChart, closeChart, isChartOpen } from './chart.js';
 import { toggleStatus, closeStatus, isStatusOpen } from './status.js';
+import { openSetup, closeSetup, isSetupOpen, initSettings, setPhaseSource } from './setup.js';
 import { mat4, mat4FromQuatPosScale, quatRotate, add, scale as vscale } from './math.js';
 
 const el = (id) => document.getElementById(id);
@@ -451,7 +452,7 @@ function syncPhase() {
   } else if (game.phase === 'flight') {
     hideOverlays();
     // the chart or the status screen owns the screen, so the sticks stay away
-    el('touch').classList.toggle('hidden', isChartOpen() || isStatusOpen());
+    el('touch').classList.toggle('hidden', isChartOpen() || isStatusOpen() || isSetupOpen());
   }
 }
 
@@ -483,7 +484,8 @@ function frame(now) {
   game.fps = fpsSmooth;
 
   const c = updateCtrl();
-  stepGame(game, {
+  // The CONTROLS page is a pause: the universe does not step behind it.
+  if (!isSetupOpen()) stepGame(game, {
     pitch: c.pitch, yaw: c.yaw, roll: c.roll,
     throttle: c.throttle, throttleSet: c.throttleSet,
     fire: c.fire, injectors: c.injectors,
@@ -555,6 +557,8 @@ async function main() {
   setupKeyboard(window);
   setupMouse(glCanvas);
   setupGamepad();
+  initSettings(); // touch layout + gamepad bindings, before the first frame
+  setPhaseSource(() => (game ? game.phase : 'title'));
   // Tap the radar to zoom it; the same predicate keeps the floating stick
   // grab off the radar ellipse (both listen for pointerdown).
   const overRadar = (x, y) => hud.scannerHit(x, y);
@@ -656,6 +660,12 @@ async function main() {
   });
   el('touch').querySelector('.buttons').insertBefore(btnStatus, el('btnFire'));
 
+  // CONTROLS page from every menu (title / docked / status markup) — one
+  // hook, so the entry points stay a class in the HTML.
+  for (const b of document.querySelectorAll('.js-setup')) {
+    b.addEventListener('click', openSetup);
+  }
+
   // VIEW button beside them: cycles front → aft → port → starboard, the
   // touch twin of the 1–4 keys (#14).
   const btnView = document.createElement('button');
@@ -703,7 +713,12 @@ async function main() {
       // T swaps the primed laser mount between fore and aft (#16)
       if (e.code === 'KeyT') cycleLaserMount(game);
     }
-    if (e.code === 'Escape') { closeChart(); closeStatus(); closeSlots(); }
+    if (e.code === 'Escape') {
+      if (isSetupOpen()) closeSetup();
+      // in flight with nothing else on screen, Escape is the pause menu
+      else if (game.phase === 'flight' && !isChartOpen() && !isStatusOpen()) openSetup();
+      else { closeChart(); closeStatus(); closeSlots(); }
+    }
   });
 
   el('btnStart').addEventListener('click', () => {

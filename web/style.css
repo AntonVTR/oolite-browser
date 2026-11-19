@@ -201,3 +201,55 @@ button:disabled { opacity: 0.4; cursor: default; }
   /* desktop: hide the virtual sticks, keep the buttons available */
   .stick, .throttle { opacity: 0.35; }
 }
+
+/* ---- CONTROLS setup page (setup.js) -------------------------------------- */
+#setup { justify-content: flex-start; overflow-y: auto; touch-action: pan-y; padding: clamp(10px, 3vw, 24px); }
+
+/* input tester: raw presses and what the debounce made of them */
+#input-log {
+  margin-top: 14px; padding: 8px 10px; min-height: 150px; max-height: 40vh;
+  overflow-y: auto; text-align: left;
+  background: rgba(0,20,10,0.7); border: 1px solid rgba(0,255,100,0.3); border-radius: 6px;
+  font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; line-height: 1.7;
+}
+#input-log .lt { opacity: 0.5; }
+#input-log .ls { color: #2f6; letter-spacing: 0.06em; }
+.log-ok { color: #4f8; }
+.log-warn { color: #fc6; }
+.log-dim { opacity: 0.55; }
+
+/* gamepad binding rows */
+.pad-row {
+  display: flex; align-items: center; gap: 10px; padding: 8px 4px;
+  border-bottom: 1px solid rgba(0,255,100,0.18);
+  font-size: clamp(12px, 3.4vw, 15px);
+}
+.pad-row.cap { background: rgba(0,90,45,0.35); }
+.pad-act { flex: 1; text-align: left; letter-spacing: 0.1em; color: #4f8; }
+.pad-btns { flex: 1; text-align: left; }
+.pad-row button { padding: 6px 10px; font-size: 12px; }
+
+/* segmented settings (button size / handedness) */
+.set-group { display: flex; align-items: center; gap: 12px; justify-content: space-between; margin-top: 14px; }
+.set-label { letter-spacing: 0.12em; color: #4f8; font-size: clamp(12px, 3.4vw, 15px); }
+.seg { display: flex; gap: 6px; }
+.seg button { padding: 8px 14px; font-size: 13px; }
+.seg button.active { background: rgba(0,90,45,0.8); color: #cfc; border-color: #4f8; }
+
+/* touch layout settings: --touch-scale is published by setup.js */
+#touch .ctl {
+  min-width: calc(58px * var(--touch-scale, 1));
+  min-height: calc(42px * var(--touch-scale, 1));
+  font-size: calc(12px * var(--touch-scale, 1));
+  padding: calc(7px * var(--touch-scale, 1)) calc(9px * var(--touch-scale, 1));
+}
+#touch .ctl.fire {
+  min-height: calc(56px * var(--touch-scale, 1));
+  font-size: calc(16px * var(--touch-scale, 1));
+}
+
+/* handedness: mirror stick / throttle / button sides (the stick grabs the
+   other half too — touch.js setTouchHand keeps grab detection in step) */
+#touch.lefty .stick { left: auto; right: max(8px, env(safe-area-inset-right)); }
+#touch.lefty .throttle { right: auto; left: max(8px, env(safe-area-inset-left)); }
+#touch.lefty .buttons { right: auto; left: max(8px, env(safe-area-inset-left)); }

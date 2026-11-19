@@ -7,6 +7,22 @@
 //   roll    +1 = roll right,        -1 = roll left
 //   throttle axis: +1 speed up, -1 slow down; throttleSet: absolute 0..1 target
 
+import { logInput } from './inputlog.js';
+
+// Standard gamepad (Chrome "standard mapping") button actions. Rebindable on
+// the CONTROLS page (ctrl.padMap); axes and the D-pad are not.
+export const DEFAULT_PAD = {
+  fire: [7, 0],        // RT or A
+  injectors: [6, 5, 2], // LT, RB or X
+  target: [4, 1],      // LB or B
+  jump: [3],           // Y
+  dock: [8],           // Back
+  missile: [9],        // Start
+};
+export const PAD_ACTIONS = Object.keys(DEFAULT_PAD);
+export const PAD_NAMES = ['A', 'B', 'X', 'Y', 'LB', 'RB', 'LT', 'RT',
+  'BACK', 'START', 'L3', 'R3', 'D-UP', 'D-DOWN', 'D-LEFT', 'D-RIGHT'];
+
 export const ctrl = {
   pitch: 0, yaw: 0, roll: 0, throttle: 0, throttleSet: null,
   fire: false, injectors: false,
@@ -14,6 +30,12 @@ export const ctrl = {
   targetNext: false, dockRequest: false, pause: false, jump: false,
   gyroOn: false,
   onGyroKey: null, // keyboard G → toggleGyro() installed by touch.js
+  // Gamepad bindings, rebound on the CONTROLS setup page. Axes and the D-pad
+  // stay fixed; every button action is a list of indexes (several buttons may
+  // share one action, as the defaults do).
+  padMap: { ...DEFAULT_PAD },
+  padCapture: null, // action name while the page waits for the next press
+  onPadBind: null,  // setup.js: save + repaint once a rebind lands
   sources: { kb: {}, mouse: {}, touch: {}, gyro: {}, pad: {} },
 };
 
@@ -23,6 +45,7 @@ export function setupKeyboard(target = window) {
   const kb = ctrl.sources.kb;
   target.addEventListener('keydown', (e) => {
     if (e.repeat) return;
+    logInput('kb', e.code, 'down');
     keys.add(e.code);
     if (e.code === 'Tab') { ctrl.targetNext = true; e.preventDefault(); }
     if (e.code === 'KeyM') ctrl.launchMissile = true; // Oolite's missile key
@@ -68,6 +91,7 @@ export function setupMouse(glCanvas) {
     if (e.pointerType === 'touch') return; // touch goes to the virtual sticks
     m.dragging = true;
     m.fire = e.button === 0;
+    logInput('mouse', 'canvas', 'down');
     lastX = e.clientX; lastY = e.clientY;
     glCanvas.setPointerCapture(e.pointerId);
   });
@@ -94,34 +118,51 @@ export function setupMouse(glCanvas) {
   };
 }
 
-// Standard gamepad (Chrome "standard mapping"):
-//   left stick  = pitch / yaw        right stick = roll / throttle
-//   D-pad       = roll / throttle    A or RT = fire   X / LT / RB = injectors
-//   B or LB     = next target        Y = jump         Back = dock request
-//   Start       = launch missile
+// Gamepad polling. Buttons read through ctrl.padMap (rebound on the CONTROLS
+// page); axes and the D-pad are fixed. Every press also feeds the tester's
+// log and the rebind capture.
 export function setupGamepad() {
   const pad = ctrl.sources.pad;
   let jumpWasDown = false;
   let missileWasDown = false;
   let targetWasDown = false;
+  let padWas = new Array(16).fill(false); // raw edges for the tester + rebind
   pad.poll = () => {
     const pads = navigator.getGamepads ? navigator.getGamepads() : [];
     const gp = pads && [...pads].find(Boolean);
-    // Flags persist across a dropout: reconnecting while a button is still
-    // held must not fire an edge that no new press created.
+    // Edge flags persist across a dropout: reconnecting while a button is
+    // still held must not fire an edge that no new press created.
     if (!gp) return null;
     const ax = (i) => (typeof gp.axes[i] === 'number' ? gp.axes[i] : 0);
     const btn = (i) => !!(gp.buttons[i] && gp.buttons[i].pressed);
     const dz = (v) => (Math.abs(v) < 0.15 ? 0 : v);
-    const jumpDown = btn(3);
+    const bound = (action) => (ctrl.padMap[action] || []).some((i) => btn(i));
+
+    // Raw presses: the tester logs every new one, and a pending rebind takes
+    // the first button pressed after REBIND was clicked.
+    for (let i = 0; i < 16; i++) {
+      if (!btn(i) || padWas[i]) continue;
+      if (ctrl.padCapture) {
+        const action = ctrl.padCapture;
+        ctrl.padMap[action] = [i];
+        ctrl.padCapture = null;
+        logInput('pad', PAD_NAMES[i], 'bind');
+        if (ctrl.onPadBind) ctrl.onPadBind(action, i);
+      } else {
+        logInput('pad', PAD_NAMES[i], 'down');
+      }
+    }
+    for (let i = 0; i < 16; i++) padWas[i] = btn(i);
+
+    const jumpDown = bound('jump');
     const jump = jumpDown && !jumpWasDown; // one jump per press
     jumpWasDown = jumpDown;
-    const missileDown = btn(9);
+    const missileDown = bound('missile');
     const missile = missileDown && !missileWasDown; // one missile per press
     missileWasDown = missileDown;
     // One target cycle per press — level-triggering here made a held (or
     // drifting) button hop the target every frame, which no debounce can catch.
-    const targetDown = btn(4) || btn(1);
+    const targetDown = bound('target');
     const target = targetDown && !targetWasDown;
     targetWasDown = targetDown;
     let roll = dz(ax(2));
@@ -132,11 +173,11 @@ export function setupGamepad() {
       pitch: dz(-ax(1)),
       yaw: dz(-ax(0)),
       roll, throttle,
-      fire: btn(7) || btn(0),
-      injectors: btn(6) || btn(5) || btn(2),
+      fire: bound('fire'),
+      injectors: bound('injectors'),
       target,
       jump,
-      dock: btn(8),
+      dock: bound('dock'),
       missile,
     };
   };

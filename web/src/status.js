@@ -10,6 +10,7 @@
 // and runs in node (tests/test-status.mjs).
 
 import { systemsIn, rankName, legalStatus } from './game.js';
+import { openSetup } from './setup.js';
 
 // The fields, straight from live game state.
 export function statusRows(g) {
@@ -43,10 +44,16 @@ function ensureOverlay() {
     '<div class="panel">' +
       '<h1>STATUS</h1>' +
       '<table id="status-list" class="market"></table>' +
-      '<div class="row"><button id="btnStatusClose" class="big">CLOSE</button></div>' +
+      '<div class="row"><button id="btnStatusCtrl">CONTROLS</button><button id="btnStatusClose" class="big">CLOSE</button></div>' +
     '</div>';
   document.body.appendChild(overlay);
   overlay.querySelector('#btnStatusClose').addEventListener('click', () => closeStatus());
+  // CONTROLS from flight: the status screen hands the screen over and comes
+  // back when the setup page closes (closeSetup restores the sticks).
+  overlay.querySelector('#btnStatusCtrl').addEventListener('click', () => {
+    closeStatus();
+    openSetup();
+  });
   return overlay;
 }
 

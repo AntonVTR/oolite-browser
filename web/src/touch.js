@@ -4,6 +4,7 @@
 // stylus; CSS keeps them clear of the HUD edges.
 
 import { ctrl, enableGyro, startGyro, stopGyro } from './controls.js';
+import { logInput } from './inputlog.js';
 
 function el(id) { return document.getElementById(id); }
 
@@ -69,11 +70,19 @@ function makeStick(node, knob, onChange) {
   };
 }
 
-// A touch may grab the floating stick: left half of the screen, not on a
+// Which half of the screen the floating stick grabs — flipped by the
+// CONTROLS setup page's handedness setting.
+let stickSide = 'left';
+export function setTouchHand(side) {
+  stickSide = side === 'left' ? 'left' : 'right';
+}
+
+// A touch may grab the floating stick: its half of the screen, not on a
 // control, not on the radar (tapping that zooms). Exported for tests.
-export function grabsStick(e, w, overRadar) {
+export function grabsStick(e, w, overRadar, side = stickSide) {
   if (e.pointerType !== 'touch') return false;
-  if (e.clientX >= w / 2) return false;
+  const inHalf = side === 'left' ? e.clientX < w / 2 : e.clientX >= w / 2;
+  if (!inHalf) return false;
   if (e.target?.closest?.('button, a, input, .throttle, .stick')) return false;
   return !(overRadar && overRadar(e.clientX, e.clientY));
 }
@@ -81,28 +90,38 @@ export function grabsStick(e, w, overRadar) {
 // Software debounce for the one-shot buttons: one accepted press per `ms` on
 // this control, so a digitizer ghost tap cannot fire the action twice (a
 // double TGT cycle, a double JUMP request — the keyboard guards the same way
-// with e.repeat). Exported for the buttons main.js wires itself and tests.
+// with e.repeat). Returns whether the press was accepted, which the tester
+// shows as fired/blocked. Exported for the buttons main.js wires itself.
 export function debounce(fn, ms = 250) {
   let last = -Infinity;
   return (...args) => {
     const now = performance.now();
-    if (now - last < ms) return;
+    if (now - last < ms) return false;
     last = now;
     fn(...args);
+    return true;
   };
 }
 
-function makeHoldButton(node, onDown, onUp) {
+// name for the tester's log: the id the button carries in index.html
+const btnName = (node) => node.id || (node.textContent || '').trim() || 'btn';
+
+export function makeHoldButton(node, onDown, onUp) {
   let id = null;
   const release = (e) => {
     if (id === null || (e && e.pointerId !== id)) return;
     id = null;
+    logInput('touch', btnName(node), 'up');
     onUp();
   };
   node.addEventListener('pointerdown', (e) => {
-    if (id !== null) return; // debounce: a ghost repeat of a held press changes nothing
+    if (id !== null) { // a ghost repeat of a held press changes nothing
+      logInput('touch', btnName(node), 'blocked');
+      return;
+    }
     id = e.pointerId;
     try { node.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+    logInput('touch', btnName(node), 'down');
     onDown(true);
     e.preventDefault();
   });
@@ -114,9 +133,12 @@ function makeHoldButton(node, onDown, onUp) {
   window.addEventListener('pointercancel', release);
 }
 
-function makeTapButton(node, onTap) {
+export function makeTapButton(node, onTap) {
   const press = debounce(onTap);
-  node.addEventListener('pointerdown', (e) => { e.preventDefault(); press(); });
+  node.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    logInput('touch', btnName(node), press() ? 'fired' : 'blocked');
+  });
 }
 
 export function setupTouchControls({ onGyroToggle, overRadar }) {
