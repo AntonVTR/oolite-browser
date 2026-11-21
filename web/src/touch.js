@@ -11,9 +11,13 @@ function el(id) { return document.getElementById(id); }
 // The slider knob: track height minus knob height (30 px, see style.css), so
 // it stays inside the slider at 0 % as well as 100 %.
 let throttleKnob = null;
+let knobTop = null; // last style written — this runs every frame, hidden or not
 function placeKnob(node, v) {
   const t = 1 - Math.max(0, Math.min(1, v));
-  node.style.top = `calc(${t.toFixed(3)} * (100% - 30px))`;
+  const top = `calc(${t.toFixed(3)} * (100% - 30px))`;
+  if (top === knobTop) return;
+  knobTop = top;
+  node.style.top = top;
 }
 
 function makeStick(node, knob, onChange) {

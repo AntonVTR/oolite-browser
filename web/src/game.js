@@ -128,11 +128,18 @@ const MAX_PEACEFUL = 2;       // one hauler and one shuttle: inhabited, not crow
 const LAUNCH_GRACE = 10;      // seconds before that first hostile engages
 const LAUNCH_FIRE_DELAY = 1.5; // extra seconds before its very first shot
 
-function shipData(g, key) { return g.shipdata[key]; }
 // Ship stats live in templates. Player hulls are thin layers over the real
 // ship (oolite_template_X-player -> like_ship oolite_template_X), so follow the
 // chain and merge child-over-parent the way Oolite's shipdata loader does.
+// Cached per game: shipdata never changes at runtime and def() runs every
+// frame (the recharge rate), so rebuilding the merge each call is pure waste.
+// Callers must treat the result as read-only.
+const defCache = new WeakMap();
 function def(g, key) {
+  let cache = defCache.get(g);
+  if (!cache) { cache = new Map(); defCache.set(g, cache); }
+  const hit = cache.get(key);
+  if (hit) return hit;
   const chain = [];
   const seen = new Set();
   let d = g.shipdata[`oolite_template_${key}`] || g.shipdata[key];
@@ -144,6 +151,7 @@ function def(g, key) {
   const out = {};
   for (let i = chain.length - 1; i >= 0; i--) Object.assign(out, chain[i]);
   delete out.like_ship;
+  cache.set(key, out);
   return out;
 }
 
@@ -536,7 +544,9 @@ export function createGame(assets) {
     target: null,
     targetBounty: 0,
     compass: null,
-    scannerEntities: () => [],
+    // The scanner reads the live list; set once here rather than rebuilt as a
+    // new closure on every launch and every frame.
+    scannerEntities: () => g.entities,
     playerRel: new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1]),
     altitudeFraction: 1, // metres above the planet over 40 km, 0..1 (#17)
     dialSpeed: 0,
@@ -587,6 +597,9 @@ export function createGame(assets) {
     dockPhase: 0,     // docking computer's approach phase (real mode, #6)
     dockSwing: null,  // frozen side vector for the autopilot's swing wide
     hitCooldown: 0,   // seconds until the station may hurt you again
+    scraped: false,   // easy mode: a crash suspends the assisted dock until
+                      // you are clear of the hull again (its speed bleed
+                      // would otherwise drop you under the limit on impact)
     ecmTime: 0,      // seconds left of the ECM effect
     ecmPulse: 0,     // countdown to the next jamming pulse
     ecmPulseNo: 0,   // pulses already fired (4 make one sweep)
@@ -600,19 +613,10 @@ export function createGame(assets) {
     vel: [0, 0, 0],
     speed: 150,
     throttle: 0.45,
-    radius: radiusOf(g, 'cobra3'),
-    maxSpeed: pd.max_flight_speed || 350,
-    thrust: pd.thrust || 32,
-    pitchRate: pd.max_flight_pitch || 1,
-    rollRate: pd.max_flight_roll || 2,
-    yawRate: (pd.max_flight_pitch || 1) / 4,
     energy: pd.max_energy || 256,
-    maxEnergy: pd.max_energy || 256,
-    maxShield: BASE_MAX_SHIELD,
     fwdShield: BASE_MAX_SHIELD,
     aftShield: BASE_MAX_SHIELD,
     fuel: pd.fuel || 70,
-    maxCargo: pd.max_cargo || 20,
     missiles: pd.max_missiles || 0,
     cabinTemp: 60,
     weaponTemp: 0,
@@ -626,6 +630,10 @@ export function createGame(assets) {
     shipKey: 'cobra3-player', // yard key of the starting hull, for trade-in
     alive: true,
   };
+  // Hull stats (speed, thrust, rates, radius, hold, energy, shields) come
+  // from the template — the same call buyShip makes, so a fresh commander and
+  // a bought hull can never drift apart.
+  applyEquipmentStats(g);
 
   syncWeaponState(g); // weaponKey / weaponLabel for the HUD and crosshair
   spawnStation(g);
@@ -791,14 +799,8 @@ export function buyShip(g, key) {
   p.credits += tradeIn - y.price;
   const d = def(g, key);
   p.shipKey = key;
-  p.maxSpeed = d.max_flight_speed || 300;
-  p.thrust = d.thrust || 30;
-  p.pitchRate = d.max_flight_pitch || 1;
-  p.rollRate = d.max_flight_roll || 2;
-  p.yawRate = (d.max_flight_pitch || 1) / 4;
   p.missiles = d.max_missiles || 0;
-  p.radius = radiusOf(g, key);
-  p.fuel = d.fuel || 70;
+  p.fuel = d.fuel || 70; // the new hull ships with a full tank
   // hull stats first, then the fitted gear that adds to them (the cargo bay
   // and the shield booster follow the commander to the new ship)
   applyEquipmentStats(g);
@@ -834,6 +836,14 @@ export function applyEquipmentStats(g) {
   const p = g.player;
   const d = def(g, p.shipKey);
   const eq = p.equipment;
+  // The hull's own flight numbers. One implementation: createGame() and
+  // buyShip() both come through here, so the two can never disagree.
+  p.maxSpeed = d.max_flight_speed || 300;
+  p.thrust = d.thrust || 30;
+  p.pitchRate = d.max_flight_pitch || 1;
+  p.rollRate = d.max_flight_roll || 2;
+  p.yawRate = (d.max_flight_pitch || 1) / 4; // shortcut: Oolite derives yaw from pitch
+  p.radius = radiusOf(g, p.shipKey);
   p.maxCargo = (d.max_cargo || 20) + (eq.EQ_CARGO_BAY ? EXTRA_CARGO : 0);
   p.maxEnergy = d.max_energy || 256;
   p.maxShield = BASE_MAX_SHIELD + (eq.EQ_SHIELD_BOOSTER ? SHIELD_BOOST : 0);
@@ -1218,7 +1228,6 @@ function stepLaunch(g, dt) {
   g.playerRel.set([ex[0], ex[1], ex[2], ey[0], ey[1], ey[2], ez[0], ez[1], ez[2]]);
   for (const m of g.messages) m.life -= dt;
   g.messages = g.messages.filter((m) => m.life > 0);
-  g.scannerEntities = () => g.entities;
   if (g.launchSeq <= 0) finishLaunch(g);
 }
 
@@ -2220,7 +2229,9 @@ export function stepGame(g, input, dt) {
     p.fwdShield = Math.min(p.maxShield, p.fwdShield + 8 * dt);
     p.aftShield = Math.min(p.maxShield, p.aftShield + 8 * dt);
   }
-  let recharge = def(g, 'cobra3').energy_recharge_rate || 4;
+  // The hull's own recharge rate, resolved through its like_ship chain —
+  // an adder recharges at 2, a python at 2.5, not the Cobra's 4.
+  let recharge = def(g, p.shipKey).energy_recharge_rate || 4;
   if (g.hasEquipment('EQ_ENERGY_UNIT')) recharge *= ENERGY_RECHARGE_MULT;
   p.energy = Math.min(p.maxEnergy, p.energy + recharge * dt);
   g.weaponTemp = Math.max(0, g.weaponTemp - 45 * dt);
@@ -2305,14 +2316,22 @@ export function stepGame(g, input, dt) {
   // Caps, not timers, keep the sky inhabited without crowding it: at most two
   // hostiles, one hauler and one shuttle (MAX_PEACEFUL) and the viper patrol.
   g.spawnTimer -= dt;
-  const ships = g.entities.filter((e) => e.type === 'ship');
-  const hostiles = ships.filter((e) => e.hostile).length;
-  const police = ships.filter((e) => e.role === 'police').length;
-  const peaceful = ships.filter((e) => !e.hostile && e.role !== 'police').length;
-  // A pirate inside the station's protection zone calls the police out, clean
-  // record or not: they come from the station onto the intruder and destroy
-  // it there (pickFoe makes the pirate stand down in that sky).
-  const intruder = ships.find((e) => e.role === 'pirate' && inProtectionZone(g, e.pos));
+  // One pass over the contacts instead of four filters and a find — this runs
+  // every frame, and the arrays it used to build are pure garbage.
+  let hostiles = 0, police = 0, peaceful = 0, hasTrader = false, intruder = null;
+  for (const e of g.entities) {
+    if (e.type !== 'ship') continue;
+    if (e.hostile) hostiles++;
+    if (e.role === 'police') police++;
+    if (!e.hostile && e.role !== 'police') {
+      peaceful++;
+      if (e.role === 'trader') hasTrader = true;
+    }
+    // A pirate inside the station's protection zone calls the police out, clean
+    // record or not: they come from the station onto the intruder and destroy
+    // it there (pickFoe makes the pirate stand down in that sky).
+    if (!intruder && e.role === 'pirate' && inProtectionZone(g, e.pos)) intruder = e;
+  }
   if (intruder && police === 0) {
     const cop = spawnPolice(g);
     // halfway out to the intruder: always inside the viper's 10 km reach
@@ -2334,7 +2353,7 @@ export function stepGame(g, input, dt) {
       else if (Math.random() < 0.6) (Math.random() < 0.33 ? spawnThargoid(g) : spawnPirate(g));
     }
     if (peaceful < MAX_PEACEFUL) {
-      if (!ships.some((e) => e.role === 'trader')) spawnTrader(g);
+      if (!hasTrader) spawnTrader(g);
       else spawnPassenger(g);
     }
   }
@@ -2384,10 +2403,19 @@ export function stepGame(g, input, dt) {
         continue;
       }
       p.pos = shove();
+      // The gate has to read the speed you arrived at: bleeding it to 30 %
+      // first made every contact "slow enough" to dock, hot ones included.
+      // And one scrape per cooldown, the rule real mode states above — a hull
+      // you keep pressing into would otherwise pay 25 twice over.
+      const hitSpeed = p.speed;
       p.speed *= 0.3;
       if (e.type === 'station') {
-        if (d < e.radius + p.radius + 60 && p.speed < 120) dock(g);
-        else damagePlayer(g, 25);
+        if (d < e.radius + p.radius + 60 && hitSpeed < DOCK_SPEED && !g.scraped) dock(g);
+        else if (g.hitCooldown <= 0) {
+          damagePlayer(g, 25);
+          g.hitCooldown = 1.5;
+          g.scraped = true;
+        }
       } else {
         damagePlayer(g, 15);
       }
@@ -2399,6 +2427,9 @@ export function stepGame(g, input, dt) {
   const st = g.station;
   if (st) {
     const sd = dist(st.pos, p.pos);
+    // A crash voids the assisted dock until you back clear of the hull —
+    // the same contact sphere the dock gate works in.
+    if (g.scraped && sd > st.radius + p.radius + 60) g.scraped = false;
     // DOCK with a docking computer fitted hands the ship to its autopilot;
     // real mode without one says why nothing happens (the assisted shortcut
     // needs no computer — that is the checkbox on the start screen).
@@ -2458,7 +2489,6 @@ export function stepGame(g, input, dt) {
   g.messages = g.messages.filter((m) => m.life > 0);
 
   // --- scanner ------------------------------------------------------------
-  g.scannerEntities = () => g.entities;
   return g;
 }
 

@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const { setupGamepad, ctrl } = await import(join(root, 'web/src/controls.js'));
+const { setupGamepad, setupMouse, ctrl } = await import(join(root, 'web/src/controls.js'));
 
 // Stand in for the browser's gamepad API: 16 buttons, none pressed.
 const fake = {
@@ -45,5 +45,25 @@ assert.equal(pad.poll(), null, 'no pad → no input');
 setPads([fake]);
 r = pad.poll();
 assert.equal(r.target, false, 'reconnect while held does not fire');
+
+// The wheel is a rate: it fades to zero like the mouse stick. It used to
+// latch at whatever the last scroll set, pinning the throttle at 0 or 1
+// for the rest of the flight.
+const listeners = {};
+const canvas = {
+  addEventListener: (type, fn) => { listeners[type] = fn; },
+  setPointerCapture: () => {},
+};
+setupMouse(canvas);
+listeners.wheel({ deltaY: -100, preventDefault: () => {} });
+let w = ctrl.sources.mouse.poll();
+assert.ok(w.throttle > 0 && w.throttle < 0.5, 'a scroll up feeds a positive rate');
+for (let i = 0; i < 40; i++) w = ctrl.sources.mouse.poll();
+assert.equal(w.throttle, 0, 'and it fades back to zero, not latches');
+listeners.wheel({ deltaY: 100, preventDefault: () => {} });
+w = ctrl.sources.mouse.poll();
+assert.ok(w.throttle < 0 && w.throttle > -0.5, 'a scroll down feeds a negative rate');
+for (let i = 0; i < 40; i++) w = ctrl.sources.mouse.poll();
+assert.equal(w.throttle, 0, 'that fades back too');
 
 console.log('test-controls: ok');

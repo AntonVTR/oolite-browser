@@ -37,6 +37,7 @@ let boomTex;
 let jumpRequested = false;
 let prevPhase = 'title';
 let storage = null; // localStorage, or null where storage is unavailable
+let storageWarn = ''; // why the last auto-save failed, shown on the station screen
 let easyBox = null; // the EASY MODE checkbox on the title screen (#6)
 const EASY_KEY = 'oolite.easyDock';
 let lastT = performance.now();
@@ -208,7 +209,7 @@ function project(pos) {
 
 function updateTargetReticle() {
   const t = game.target;
-  if (!t) { game.target = null; return; }
+  if (!t) return;
   const a = project(t.pos);
   if (!a) { t.onScreen = false; return; }
   // radius estimate along the camera's own starboard, so the box keeps its
@@ -299,7 +300,12 @@ function buildMarketScreen() {
     `Kills: ${game.kills}   Rating: ${rankName(game.kills)}\n` +
     `Legal status: ${legalStatus(game.crime)}\n` +
     `${sys.description}\n` +
-    `Cargo hold:\n${cargoLines}`;
+    `Cargo hold:\n${cargoLines}` +
+    (storageWarn ? `\n!! ${storageWarn}` : '');
+
+  // REFUEL is a two-credit action: say so by disabling it rather than
+  // silently doing nothing when the tank is full or the credits are not there.
+  el('btnRefuel').disabled = p.fuel >= 70 || p.credits < 2;
 
   buildMissionScreen(); // the Navy briefing sits between status and tabs (#7)
 
@@ -438,7 +444,11 @@ function syncPhase() {
   prevPhase = game.phase;
   if (game.phase !== 'flight') { closeChart(); closeStatus(); } // never leave a screen over a menu
   if (game.phase === 'docked') {
-    saveGame(game, storage); // auto-save on docking
+    // Auto-save on docking. A refused write (private mode, quota) would
+    // otherwise lose the commander with no word said, so say it on the
+    // screen the player is about to read.
+    storageWarn = saveGame(game, storage)
+      ? '' : 'SAVE FAILED — storage is full or blocked, this game is NOT saved';
     el('touch').classList.add('hidden');
     buildMarketScreen();
     el('docked').classList.remove('hidden');
@@ -698,6 +708,20 @@ async function main() {
 
   window.addEventListener('keydown', (e) => {
     if (e.repeat) return; // one press, one action — holding C must not flicker the chart
+    // Escape always works: it is how every screen is closed.
+    if (e.code === 'Escape') {
+      if (isSetupOpen()) closeSetup();
+      // in flight with nothing else on screen, Escape is the pause menu
+      else if (game.phase === 'flight' && !isChartOpen() && !isStatusOpen()) openSetup();
+      else { closeChart(); closeStatus(); closeSlots(); }
+      return;
+    }
+    // The CONTROLS page is a pause, so nothing may act on the game behind it:
+    // H teleports the ship, T swaps a laser, C/5 open a screen under it.
+    if (isSetupOpen()) return;
+    // A chart or status screen owns the keyboard. Only its own two keys stay
+    // live, and both route through the toggles that swap one screen for the other.
+    if ((isChartOpen() || isStatusOpen()) && e.code !== 'KeyC' && e.code !== 'Digit5') return;
     if (e.code === 'KeyJ') jumpRequested = true;
     if (e.code === 'KeyH') jdrive(game); // the ZX in-system J-drive (#20)
     if (e.code === 'KeyN') renderer.wireframe = !renderer.wireframe; // #22
@@ -712,12 +736,6 @@ async function main() {
       if (e.code === 'Digit4') setView(game, 'starboard');
       // T swaps the primed laser mount between fore and aft (#16)
       if (e.code === 'KeyT') cycleLaserMount(game);
-    }
-    if (e.code === 'Escape') {
-      if (isSetupOpen()) closeSetup();
-      // in flight with nothing else on screen, Escape is the pause menu
-      else if (game.phase === 'flight' && !isChartOpen() && !isStatusOpen()) openSetup();
-      else { closeChart(); closeStatus(); closeSlots(); }
     }
   });
 

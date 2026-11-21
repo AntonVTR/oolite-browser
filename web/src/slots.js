@@ -40,13 +40,23 @@ function ensureOverlay() {
   return overlay;
 }
 
+// Rows are built with textContent: the contents cell carries the commander
+// name from the save, and innerHTML would hand it to the parser.
 function render() {
   const saving = mode === 'save';
   el('slots-title').textContent = saving ? 'SAVE GAME' : 'LOAD GAME';
   el('slots-sub').textContent = saving
     ? 'pick a slot — a filled one asks to confirm the overwrite'
     : 'pick a saved game';
-  let rows = '';
+  const table = el('slots-list');
+  table.textContent = '';
+  const head = document.createElement('tr');
+  for (const label of ['Slot', 'Contents', '']) {
+    const th = document.createElement('th');
+    th.textContent = label;
+    head.append(th);
+  }
+  table.append(head);
   for (let i = 0; i < SLOT_COUNT; i++) {
     const info = slotInfo(i, storageRef);
     const contents = info
@@ -54,13 +64,22 @@ function render() {
         `${info.credits.toFixed(1)} CR · ` +
         `${info.phase.toUpperCase()} · ${info.kills} kills · ${rankName(info.kills)}`
       : 'empty';
-    const action = saving
-      ? `<button data-slot="${i}">${info ? (armed === i ? 'CONFIRM' : 'OVERWRITE') : 'SAVE'}</button>`
-      : `<button data-slot="${i}"${info ? '' : ' disabled'}>LOAD</button>`;
-    rows += `<tr><td>SLOT ${i + 1}</td><td>${contents}</td><td>${action}</td></tr>`;
+    const tr = document.createElement('tr');
+    const slot = document.createElement('td');
+    const body = document.createElement('td');
+    const cell = document.createElement('td');
+    const btn = document.createElement('button');
+    slot.textContent = `SLOT ${i + 1}`;
+    body.textContent = contents;
+    btn.dataset.slot = String(i);
+    btn.textContent = saving
+      ? (info ? (armed === i ? 'CONFIRM' : 'OVERWRITE') : 'SAVE')
+      : 'LOAD';
+    if (!saving) btn.disabled = !info;
+    cell.append(btn);
+    tr.append(slot, body, cell);
+    table.append(tr);
   }
-  el('slots-list').innerHTML =
-    '<tr><th>Slot</th><th>Contents</th><th></th></tr>' + rows;
 }
 
 function pick(i) {
@@ -68,7 +87,11 @@ function pick(i) {
   if (mode === 'save') {
     // a filled slot needs a second click, so nothing is overwritten by one tap
     if (info && armed !== i) { armed = i; render(); return; }
-    if (!saveSlot(gameRef, i, storageRef)) return;
+    if (!saveSlot(gameRef, i, storageRef)) {
+      // a refused write (private mode, quota) must not read as a saved slot
+      el('slots-sub').textContent = 'SAVE FAILED — storage is full or blocked';
+      return;
+    }
     armed = -1;
     gameRef.events.push({ type: 'beep' }); // main.js's onAction plays it at once
     if (onAction) onAction();

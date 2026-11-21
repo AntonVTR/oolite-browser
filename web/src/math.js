@@ -2,7 +2,6 @@
 // Matrices are 16-element Float32Arrays, column-major (WebGL convention).
 // Quaternions are [x, y, z, w].
 
-export function v3(x = 0, y = 0, z = 0) { return [x, y, z]; }
 export function add(a, b) { return [a[0] + b[0], a[1] + b[1], a[2] + b[2]]; }
 export function sub(a, b) { return [a[0] - b[0], a[1] - b[1], a[2] - b[2]]; }
 export function scale(a, s) { return [a[0] * s, a[1] * s, a[2] * s]; }
@@ -18,8 +17,6 @@ export function norm(a) {
 }
 
 // ---- quaternions -----------------------------------------------------------
-export const QUAT_IDENT = [0, 0, 0, 1];
-
 export function quatMul(a, b) {
   return [
     a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1],
@@ -161,29 +158,4 @@ export function mat4InvertRigid(out, m) {
   out[14] = -(r20 * tx + r21 * ty + r22 * tz);
   out[15] = 1;
   return out;
-}
-
-// Transform a point by a mat4 (assumes w = 1).
-export function mat4TransformPoint(m, p) {
-  return [
-    m[0] * p[0] + m[4] * p[1] + m[8] * p[2] + m[12],
-    m[1] * p[0] + m[5] * p[1] + m[9] * p[2] + m[13],
-    m[2] * p[0] + m[6] * p[1] + m[10] * p[2] + m[14],
-  ];
-}
-
-// Spherical interpolation for orientation (used by docking / launch smoothing).
-export function quatSlerp(a, b, t) {
-  let bx = b[0], by = b[1], bz = b[2], bw = b[3];
-  let cos = a[0] * bx + a[1] * by + a[2] * bz + a[3] * bw;
-  if (cos < 0) { cos = -cos; bx = -bx; by = -by; bz = -bz; bw = -bw; }
-  let ax = a[0], ay = a[1], az = a[2], aw = a[3];
-  if (cos > 0.9995) {
-    return quatNormalize([ax + (bx - ax) * t, ay + (by - ay) * t, az + (bz - az) * t, aw + (bw - aw) * t]);
-  }
-  const theta = Math.acos(cos);
-  const s = Math.sin(theta);
-  const wa = Math.sin((1 - t) * theta) / s;
-  const wb = Math.sin(t * theta) / s;
-  return [ax * wa + bx * wb, ay * wa + by * wb, az * wa + bz * wb, aw * wa + bw * wb];
 }

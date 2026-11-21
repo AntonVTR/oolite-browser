@@ -787,6 +787,29 @@ easyFast.player.speed = 300;
 stepGame(easyFast, { dockRequest: true }, 1 / 60);
 assert.strictEqual(easyFast.phase, 'flight', 'a hot DOCK request is refused');
 
+// A hot contact in easy mode is a crash, not a shortcut: the contact's own
+// 30 % speed bleed would otherwise drop you under the limit a frame later
+// and dock you anyway, so the gate reads the speed you arrived at and the
+// crash suspends the assisted dock until you back clear of the hull.
+const burn = quiet();
+burn.easyDock = true;
+burn.player.pos = [0, 0, 560]; // inside the inflated face (500 m + the 74 m ship)
+burn.player.quat = [0, 1, 0, 0]; // nose into the station
+burn.player.speed = 400;
+burn.player.throttle = 1;
+const burnShield = burn.player.fwdShield;
+run(burn, noInput(), 3);
+assert.notStrictEqual(burn.phase, 'docked', 'a hot easy contact never docks');
+assert.ok(burn.player.fwdShield < burnShield, 'and it costs shield');
+// Backed clear of the contact sphere, the shortcut works again.
+burn.player.pos = [0, 0, 1400];
+stepGame(burn, noInput(), 1 / 60);
+burn.player.pos = [0, 0, 560];
+burn.player.speed = 80;
+burn.player.throttle = 80 / burn.player.maxSpeed;
+run(burn, noInput(), 2);
+assert.strictEqual(burn.phase, 'docked', 'a slow contact after backing clear docks');
+
 // ---- contact follows the hull, not a sphere of its vertex radius -----------
 // The Coriolis mesh spans 500 m to its faces but 703 m to its corners, and
 // the old test used that corner radius as a sphere: the "hull" reached 200 m

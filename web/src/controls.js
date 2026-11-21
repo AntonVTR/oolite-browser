@@ -27,7 +27,7 @@ export const ctrl = {
   pitch: 0, yaw: 0, roll: 0, throttle: 0, throttleSet: null,
   fire: false, injectors: false,
   launchMissile: false, ecm: false,
-  targetNext: false, dockRequest: false, pause: false, jump: false,
+  targetNext: false, dockRequest: false, jump: false,
   gyroOn: false,
   onGyroKey: null, // keyboard G → toggleGyro() installed by touch.js
   // Gamepad bindings, rebound on the CONTROLS setup page. Axes and the D-pad
@@ -52,7 +52,6 @@ export function setupKeyboard(target = window) {
     if (e.code === 'KeyX') ctrl.ecm = true;
     if (e.code === 'Enter') ctrl.dockRequest = true;
     if (e.code === 'KeyG' && ctrl.onGyroKey) ctrl.onGyroKey(); // keydown = iOS gesture
-    if (e.code === 'Escape') ctrl.pause = true;
     if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'PageUp', 'PageDown'].includes(e.code)) {
       e.preventDefault();
     }
@@ -114,7 +113,12 @@ export function setupMouse(glCanvas) {
     // stick returns to centre shortly after the mouse stops
     const decay = 1 / 30;
     if (!m.dragging) { m.pitch = decayToward(m.pitch, 0, decay); m.yaw = decayToward(m.yaw, 0, decay); }
-    return { pitch: m.pitch, yaw: m.yaw, fire: m.fire, throttle: ctrl.sources.kb.wheel || 0 };
+    // The wheel is a rate, not a latch: it has to fade like the stick does.
+    // It used to stay at whatever the last scroll set, which pinned the
+    // throttle at 0 or 1 for the rest of the flight.
+    const wheel = decayToward(ctrl.sources.kb.wheel || 0, 0, decay);
+    ctrl.sources.kb.wheel = wheel;
+    return { pitch: m.pitch, yaw: m.yaw, fire: m.fire, throttle: wheel };
   };
 }
 

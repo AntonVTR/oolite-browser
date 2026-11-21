@@ -62,10 +62,20 @@ function setTouchVisible(show) {
   if (touch) touch.classList.toggle('hidden', !show);
 }
 
+// Built with textContent, not innerHTML: one of these values is the commander
+// name, which comes from a prompt (and from a loaded save).
 function render(g) {
-  el('status-list').innerHTML = statusRows(g)
-    .map(([label, value]) => `<tr><td>${label}</td><td>${value}</td></tr>`)
-    .join('');
+  const table = el('status-list');
+  table.textContent = '';
+  for (const [label, value] of statusRows(g)) {
+    const tr = document.createElement('tr');
+    const a = document.createElement('td');
+    const b = document.createElement('td');
+    a.textContent = label;
+    b.textContent = value;
+    tr.append(a, b);
+    table.append(tr);
+  }
 }
 
 // Toggle from the 5 key or the STATUS button; only while flying, like the chart.

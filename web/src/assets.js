@@ -81,28 +81,30 @@ export function resolveTextureName(matName, entry, modelBase) {
  * @returns {Promise<object>} assets bag
  */
 export async function loadAssets(onProgress = () => {}) {
-  const A = { plists: {}, meshes: {}, textures: {}, sounds: {}, parsedMeshes: {} };
+  const A = { plists: {}, textures: {}, sounds: {}, parsedMeshes: {} };
   let done = 0;
   let total = 0;
   const tick = (label) => { done++; onProgress(done, total, label); };
 
+  // Every group is fetched in parallel within itself: ~80 requests issued one
+  // after another cost the sum of every latency instead of the slowest one.
   // config plists
   const plistNames = ['shipdata', 'hud', 'crosshairs', 'planetinfo', 'equipment', 'shipyard', 'trade-goods'];
   total += plistNames.length;
-  for (const name of plistNames) {
+  await Promise.all(plistNames.map(async (name) => {
     A.plists[name] = parsePlist(await fetchText(`assets/config/${name}.plist`));
     tick(`config/${name}`);
-  }
+  }));
 
   // models (main hull + station subentities)
   total += Object.keys(SHIP_DEFS).length;
-  for (const [key, def] of Object.entries(SHIP_DEFS)) {
+  await Promise.all(Object.entries(SHIP_DEFS).map(async ([key, def]) => {
     A.parsedMeshes[key] = parseMesh(await fetchText(`assets/models/${def.model}.dat`));
     for (const sub of def.subentities || []) {
       A.parsedMeshes[sub] = parseMesh(await fetchText(`assets/models/${sub}.dat`));
     }
     tick(`model/${def.model}`);
-  }
+  }));
 
   // textures: every material used by every mesh, resolved through shipdata
   const texJobs = new Map(); // png name -> url
@@ -120,20 +122,20 @@ export async function loadAssets(onProgress = () => {}) {
     }
   }
   total += texJobs.size;
-  for (const [png, url] of texJobs) {
+  await Promise.all([...texJobs].map(async ([png, url]) => {
     A.textures[png] = await fetchImage(url);
     tick(`texture/${png}`);
-  }
+  }));
 
   // sounds
   total += SOUND_FILES.length;
-  for (const s of SOUND_FILES) {
+  await Promise.all(SOUND_FILES.map(async (s) => {
     try {
       const r = await fetch(`assets/sounds/${s}.ogg`);
       if (r.ok) A.sounds[s] = await r.arrayBuffer();
     } catch (e) { /* sound is optional */ }
     tick(`sound/${s}`);
-  }
+  }));
 
   onProgress(done, total, 'ready');
   return A;

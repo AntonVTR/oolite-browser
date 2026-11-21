@@ -8,7 +8,6 @@ const YELLOW = [1, 1, 0];
 const GREEN = [0, 1, 0];
 const DARKGREEN = [0, 0.75, 0];
 const BLUE = [0, 0, 1];
-const WHITE = [1, 1, 1];
 // Magenta "critical" flash colour for a dial in its last band (Oolite's
 // redplus_color in HeadUpDisplay.m).
 const REDPLUS = [1, 0, 0.5];
