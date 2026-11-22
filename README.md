@@ -169,10 +169,13 @@ gyro, keyboard/mouse and gamepad.
 | Fullscreen | `F11` (browser) | FULL | — |
 
 Docking: the start screen's **EASY MODE** checkbox picks the rules (kept in
-`localStorage`). **On** — the old shortcut: fly within 400 m of the station at
-under 120 m/s, or press DOCK under 1500 m; with a **Docking Computer** fitted
-the same request is an autopilot that turns onto the station from any range
-and slows itself for the contact. **Off** (the default) — the original's
+`localStorage`). **On** — the old shortcut: touch the station under 120 m/s,
+or press DOCK within 1500 m at under 250 m/s (a refused request answers
+`DOCK NEEDS 1500 m AND 250 m/s`); arriving hot costs 25 shield and suspends
+the assist until you back clear — the HUD says `BACK CLEAR TO DOCK AGAIN`
+while it holds. With a **Docking Computer** fitted the same request is an
+autopilot that turns onto the station from any range and slows itself for the
+contact. **Off** (the default) — the original's
 skill: face into the slot, roll with the spinning station and arrive under
 120 m/s; the HUD coaches `SLOW TO <120 m/s TO DOCK`,
 `MATCH THE STATION ROTATION` and `LINE UP WITH THE DOCKING SLOT`, and a rough

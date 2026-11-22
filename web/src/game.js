@@ -2406,11 +2406,14 @@ export function stepGame(g, input, dt) {
       // The gate has to read the speed you arrived at: bleeding it to 30 %
       // first made every contact "slow enough" to dock, hot ones included.
       // And one scrape per cooldown, the rule real mode states above — a hull
-      // you keep pressing into would otherwise pay 25 twice over.
+      // you keep pressing into would otherwise pay 25 twice over. No distance
+      // check: a contact is bounded by hull + ship radius (≤ 777 m on the
+      // Coriolis), so the old 837 m gate could never actually refuse one.
+      // The docking computer's own soft approach rides through the suspension.
       const hitSpeed = p.speed;
       p.speed *= 0.3;
       if (e.type === 'station') {
-        if (d < e.radius + p.radius + 60 && hitSpeed < DOCK_SPEED && !g.scraped) dock(g);
+        if (hitSpeed < DOCK_SPEED && (!g.scraped || g.autoDock)) dock(g);
         else if (g.hitCooldown <= 0) {
           damagePlayer(g, 25);
           g.hitCooldown = 1.5;
@@ -2427,8 +2430,9 @@ export function stepGame(g, input, dt) {
   const st = g.station;
   if (st) {
     const sd = dist(st.pos, p.pos);
-    // A crash voids the assisted dock until you back clear of the hull —
-    // the same contact sphere the dock gate works in.
+    // A crash voids the assisted dock until the ship is back out past the
+    // 837 m radius — well clear of the hull's 574 m faces — and the hint
+    // below says so the whole time it holds.
     if (g.scraped && sd > st.radius + p.radius + 60) g.scraped = false;
     // DOCK with a docking computer fitted hands the ship to its autopilot;
     // real mode without one says why nothing happens (the assisted shortcut
@@ -2450,12 +2454,20 @@ export function stepGame(g, input, dt) {
     }
     if (g.easyDock) {
       // Assisted mode (the game's original shortcut): crawl in under the
-      // limit, or ask for it on the DOCK button.
+      // limit, or ask for it on the DOCK button. Both refusals say why —
+      // a silent DOCK or a suspended assist reads as "easy mode is broken".
       if ((sd < 400 && p.speed < 120) || (input.dockRequest && sd < 1500 && p.speed < 250)) dock(g);
-      else if (sd < 3000 && p.speed >= 120 && !g.autoDock) g.dockHint = 2;
+      else if (input.dockRequest && !g.autoDock) {
+        pushMessage(g, 'DOCK NEEDS 1500 m AND 250 m/s', YELLOW, 3);
+      } else if (sd < 3000 && (g.scraped || p.speed >= 120) && !g.autoDock) g.dockHint = 2;
       else g.dockHint = Math.max(0, g.dockHint - dt);
-      if (g.dockHint > 0 && !g.messages.some((m) => m.text.startsWith('SLOW'))) {
-        pushMessage(g, 'SLOW TO <120 m/s TO DOCK', BLUE, 3);
+      if (g.dockHint > 0) {
+        // While the crash lock holds, slowing down alone cannot help — say
+        // what actually ends it instead of repeating the speed limit.
+        const hint = g.scraped ? 'BACK CLEAR TO DOCK AGAIN' : 'SLOW TO <120 m/s TO DOCK';
+        if (!g.messages.some((m) => m.text.startsWith(hint.slice(0, 6)))) {
+          pushMessage(g, hint, BLUE, 3);
+        }
       }
     } else {
       // Real mode: the collision lane above does the docking — this coaches

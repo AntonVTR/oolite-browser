@@ -786,6 +786,8 @@ easyFast.player.pos = [0, 0, 1000]; // inside the 1500 m DOCK range
 easyFast.player.speed = 300;
 stepGame(easyFast, { dockRequest: true }, 1 / 60);
 assert.strictEqual(easyFast.phase, 'flight', 'a hot DOCK request is refused');
+assert.ok(easyFast.messages.some((m) => m.text === 'DOCK NEEDS 1500 m AND 250 m/s'),
+  'and the refusal states the range instead of staying silent');
 
 // A hot contact in easy mode is a crash, not a shortcut: the contact's own
 // 30 % speed bleed would otherwise drop you under the limit a frame later
@@ -809,6 +811,37 @@ burn.player.speed = 80;
 burn.player.throttle = 80 / burn.player.maxSpeed;
 run(burn, noInput(), 2);
 assert.strictEqual(burn.phase, 'docked', 'a slow contact after backing clear docks');
+
+// A crash in easy mode says what ends the suspension — a quiet HUD there
+// leaves the player pressing DOCK at a hull that will not answer.
+const warned = quiet();
+warned.easyDock = true;
+warned.player.pos = [0, 0, 560]; // already inside the inflated face
+warned.player.quat = [0, 1, 0, 0];
+warned.player.speed = 400;
+warned.player.throttle = 1;
+stepGame(warned, noInput(), 1 / 60);
+assert.notStrictEqual(warned.phase, 'docked', 'the hot contact is refused');
+assert.ok(warned.messages.some((m) => m.text === 'BACK CLEAR TO DOCK AGAIN'),
+  'and the HUD says what would end the refusal');
+
+// The docking computer rides through the crash lock: engage it from past the
+// shortcut's range, arrive hot — the suspension holds — and the autopilot's
+// own soft contact still docks where a manual approach would be refused.
+const auto = quiet();
+auto.easyDock = true;
+auto.player.pos = [0, 0, 1500]; // just past the shortcut's range
+auto.player.quat = [0, 1, 0, 0];
+auto.player.speed = 300;
+auto.player.throttle = 1;
+auto.player.equipment.EQ_DOCK_COMP = true;
+stepGame(auto, { dockRequest: true }, 1 / 60);
+assert.strictEqual(auto.autoDock, true, 'the fitted computer takes the ship');
+auto.player.pos = [0, 0, 560]; // then the hot arrival: contact at once
+stepGame(auto, noInput(), 1 / 60);
+assert.strictEqual(auto.scraped, true, 'the crash suspends the assist');
+run(auto, noInput(), 15);
+assert.strictEqual(auto.phase, 'docked', 'and the autopilot docks through the suspension');
 
 // ---- contact follows the hull, not a sphere of its vertex radius -----------
 // The Coriolis mesh spans 500 m to its faces but 703 m to its corners, and
