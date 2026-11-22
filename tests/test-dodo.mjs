@@ -55,7 +55,7 @@ assert.strictEqual(st.name, 'Dodecahedron Station');
 assert.strictEqual(st.type, 'station');
 assert.deepStrictEqual(st.dockOffset, [0, 0, 560.3216], 'its own sleeve offset from shipdata');
 assert.strictEqual(st.radius, parsedMeshes.dodo.bbox.radius, 'real dodecahedron mesh');
-assert.strictEqual(st.spin, 0.02, 'the same rotation rules as the Coriolis');
+assert.strictEqual(st.spin, 0, 'the station holds still: the sleeve must not wander');
 // and a system the planetinfo calls coriolis stays coriolis
 const corKeys = Object.keys(planetinfo).filter((k) => k.startsWith('0 ')
   && planetinfo[k].station === 'coriolis' && k !== `0 ${dodoIndex}`);

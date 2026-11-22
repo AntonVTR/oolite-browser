@@ -23,8 +23,8 @@ gyro, keyboard/mouse and gamepad.
   dock → buy/sell commodities → trade your ship in at the shipyard → refuel →
   witchspace jump to the next system → repeat. Credits, cargo hold, bounty
   rewards, shields, laser heat, death.
-- **Real docking and launch**: dock the original's way — face into the slot,
-  roll with the spinning station and arrive under 120 m/s — or tick
+- **Real docking and launch**: dock the original's way — face into the slot
+  and arrive under 120 m/s — or tick
   **EASY MODE** on the start screen for the old assisted shortcut (the
   preference is remembered in `localStorage`). LAUNCH rides the original's
   10-second trip out of the force-field tube instead of teleporting.
@@ -176,9 +176,9 @@ the assist until you back clear — the HUD says `BACK CLEAR TO DOCK AGAIN`
 while it holds. With a **Docking Computer** fitted the same request is an
 autopilot that turns onto the station from any range and slows itself for the
 contact. **Off** (the default) — the original's
-skill: face into the slot, roll with the spinning station and arrive under
-120 m/s; the HUD coaches `SLOW TO <120 m/s TO DOCK`,
-`MATCH THE STATION ROTATION` and `LINE UP WITH THE DOCKING SLOT`, and a rough
+skill: face into the slot and arrive under
+120 m/s; the HUD coaches `SLOW TO <120 m/s TO DOCK` and
+`LINE UP WITH THE DOCKING SLOT`, and a rough
 or too-fast approach costs 25 shield plus a tonne of cargo per scrape. In
 this mode DOCK only answers with the Docking Computer fitted, and its
 autopilot then flies the real approach itself, whistling a generated waltz

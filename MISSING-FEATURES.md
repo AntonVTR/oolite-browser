@@ -145,11 +145,10 @@ skill moment of the original is gone.
 
 **Done** (branch `iter/docking`): the start screen carries the **EASY MODE**
 checkbox (off by default, remembered in `localStorage` as `oolite.easyDock`),
-and with it off docking is judged against the spinning Coriolis slot
-(`dockFrame()` / `lane()` in `web/src/game.js`): face into the slot, roll
-with the station and stay under 120 m/s to thread the sleeve — anything else
-costs 25 shield and a tonne of cargo per scrape, while the HUD coaches
-`SLOW TO <120 m/s TO DOCK` / `MATCH THE STATION ROTATION` /
+and with it off docking is judged against the Coriolis slot
+(`dockFrame()` / `lane()` in `web/src/game.js`): face into the slot and stay
+under 120 m/s to thread the sleeve — anything else costs 25 shield and a tonne
+of cargo per scrape, while the HUD coaches `SLOW TO <120 m/s TO DOCK` /
 `LINE UP WITH THE DOCKING SLOT`. The old shortcut is exactly what the
 checkbox turns on. Contact itself is judged against the hull's own planes
 (`hullTouch()` / `hullExit()` in `web/src/game.js`) — not a sphere of the
@@ -157,12 +156,20 @@ mesh's corner radius, which reached 200 m past the docking face and bounced
 clean approaches off empty space before they ever reached the slot. Without
 the checkbox, DOCK only answers with the Docking Computer
 (#5) fitted, and that autopilot now flies the slot itself — swing wide onto
-the side you came in on, sit on the axis a kilometre out, match the roll,
-pace the speed to the slot — instead of aiming at the station's centre.
-Launch is the original's 10-second ride out of the force-field tube
-(`launchTrip()` / `stepLaunch()`): a fixed path carried by the station's
-rotation that hands over framed the way the instant launch always framed
-you. Tests and smokes keep the instant `launch()`; `?trip=1` takes the ride.
+the side you came in on, sit on the axis a kilometre out, and pace the speed
+to the slot — instead of aiming at the station's centre.
+**Still open here**: the station holds still. Upstream rolls it about the dock
+axis (`station_roll = "0.08"; // 1G at rim`, `Universe.m:5048`), but the port
+first spun it about world Y, which swept the sleeve past the approach at
+10 m/s and made the slot a moving target — the reason a manual approach could
+not get in. Spin is off for now (`st.spin = 0` in `spawnStation()`); re-enabling
+it means rotating about the sleeve axis, not world Y. No roll gate is judged
+meanwhile, and the original has none either —
+`DockEntity shipIsInDockingCorridor:` only tests the ship's box in the port
+frame. Launch is the original's 10-second ride out of the force-field tube
+(`launchTrip()` / `stepLaunch()`): a fixed path that hands over framed the way
+the instant launch always framed you. Tests and smokes keep the instant
+`launch()`; `?trip=1` takes the ride.
 
 ### 7. Missions
 Original: Galactic Navy jobs — track down a stolen experimental ship, carry

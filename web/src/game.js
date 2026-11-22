@@ -212,10 +212,9 @@ function makeShip(g, key, pos, quat, opts = {}) {
 // "galaxy-1 system" key Oolite's OOSystemDescriptionManager reads.
 //
 // Docking geometry (#6, #13): each station type carries its own sleeve
-// offset from shipdata — a sleeve on the station's +Z face, carried round by
-// the station's spin. With easy mode off, docking is judged against this
-// frame — approach along its axis, rolled with the station, under the
-// 120 m/s limit.
+// offset from shipdata — a sleeve on the station's +Z face. With easy mode
+// off, docking is judged against this frame: approach along its axis and
+// under the 120 m/s limit.
 // shortcut: both sleeves are judged against the same 130 m lateral budget
 // even though their real mouths differ (the meshes span ~121 m and ~105×40 m).
 const DOCK_OFFSET = [0, 0, 500.2561]; // Coriolis, from shipdata
@@ -238,7 +237,11 @@ export function spawnStation(g) {
     { name: STATIONS[kind].name, role: 'station' });
   st.type = 'station';
   st.maxSpeed = 0;
-  st.spin = 0.02; // same rotation for both types: same docking rules (#13)
+  // The station holds still. Upstream rolls it about the dock axis
+  // (station_roll = "0.08"; // 1G at rim, Universe.m:5048), but any spin here
+  // sweeps the sleeve past the approach and turns the slot into a moving
+  // target — the port's Y-axis spin carried it round at 10 m/s.
+  st.spin = 0;
   st.color = BLUE;
   st.dockOffset = STATIONS[kind].dockOffset;
   // Contact is judged against the hull planes, not a sphere (hullTouch): the
@@ -949,8 +952,8 @@ export function buyEquipment(g, key, mount) {
 
 // --- real docking (MISSING-FEATURES #6) -----------------------------------
 // The slot frame and its constants (DOCK_OFFSET, SLOT_HALF, DOCK_SPEED) live
-// with the station types above: the sleeve is on the station's +Z face and
-// turns with its spin, so dockFrame() reads the offset off the station.
+// with the station types above: the sleeve is on the station's +Z face, so
+// dockFrame() reads the offset off the station.
 
 function dockFrame(g) {
   const st = g.station;
@@ -962,8 +965,9 @@ function dockFrame(g) {
 }
 
 // Where the ship sits relative to the slot: axial > 0 is outside the mouth,
-// lat is how far off the slot's axis, facing/roll are the alignments a clean
-// approach needs (1 = nose straight in / rolled with the station).
+// lat is how far off the slot's axis, facing is how straight the nose points
+// in (1 = nose along the axis). Roll is not judged — the original has no
+// roll gate either (DockEntity shipIsInDockingCorridor:).
 function lane(g) {
   const f = dockFrame(g);
   const rel = sub(g.player.pos, f.pos);
@@ -973,11 +977,10 @@ function lane(g) {
     axial,
     lat: len(sub(rel, scale(f.normal, axial))),
     facing: dot(quatRotate(g.player.quat, [0, 0, 1]), scale(f.normal, -1)),
-    roll: dot(quatRotate(g.player.quat, [0, 1, 0]), f.up),
   };
 }
 
-const linedUp = (l) => l.lat < SLOT_HALF && l.facing > 0.9 && l.roll > 0.85;
+const linedUp = (l) => l.lat < SLOT_HALF && l.facing > 0.9;
 
 // --- station contact ---------------------------------------------------------
 // The station hull as inward half-spaces in its own frame. Both station
@@ -1049,7 +1052,7 @@ function loseCargo(g) {
 }
 
 // Roll the ship onto a reference up (the station's) about its own nose —
-// the docking computer's answer to "match the station rotation".
+// the docking computer's way of flying in level with the slot.
 function matchRoll(e, upTarget, dt, rate) {
   const fwd = quatRotate(e.quat, [0, 0, 1]);
   const up = quatRotate(e.quat, [0, 1, 0]);
@@ -1203,9 +1206,9 @@ export function launchTrip(g) {
   p.throttle = Math.min(1, p.speed / p.maxSpeed);
 }
 
-// One frame of the ride: the station turns under the ship, the ship rides
-// the path at a constant speed (arc length / time), and nothing can hurt it
-// until finishLaunch hands the controls back.
+// One frame of the ride: the ship rides the path at a constant speed (arc
+// length / time), and nothing can hurt it until finishLaunch hands the
+// controls back.
 function stepLaunch(g, dt) {
   const st = g.station;
   const p = g.player;
@@ -2099,7 +2102,7 @@ export function stepGame(g, input, dt) {
   // A DOCK request with EQ_DOCK_COMP fitted hands the ship to its autopilot.
   // Easy mode flies at the station as a whole (the old shortcut); real mode
   // flies the slot — swing wide onto the side the ship came in on, sit on the
-  // axis a kilometre out, then crawl in rolled with the station (#6).
+  // axis a kilometre out, then crawl in (#6).
   const autoDocking = g.autoDock && !!g.station;
   const autoLane = autoDocking && !g.easyDock ? lane(g) : null;
   if (autoDocking) {
@@ -2116,16 +2119,12 @@ export function stepGame(g, input, dt) {
       else {
         // Final approach: close on the axis — straight at the mouth from far
         // out, then 600 m down the axis so the bearing stays shallow enough
-        // for the slot's alignment budget through the contact zone — and bend
-        // the aim by the speed that rides the station's rotation. Flying a
-        // straight line would let the spinning slot sweep past the ship.
+        // for the slot's alignment budget through the contact zone. The mouth
+        // holds still (the station does not spin), so a straight line in works.
         const toAxis = autoLane.axial >= 400
           ? autoLane.pos
           : add(autoLane.pos, scale(autoLane.normal, autoLane.axial - 600));
-        const relS = sub(p.pos, g.station.pos);
-        const vOrbit = scale(cross(autoLane.up, relS), g.station.spin);
-        const dir = norm(add(scale(norm(sub(toAxis, p.pos)), p.speed), vOrbit));
-        aim = add(p.pos, scale(dir, 600));
+        aim = add(p.pos, scale(norm(sub(toAxis, p.pos)), 600));
       }
       steerToward(p, aim, dt, p.pitchRate);
       matchRoll(p, autoLane.up, dt, p.rollRate);
@@ -2377,10 +2376,11 @@ export function stepGame(g, input, dt) {
       ? hullExit(e, p.pos, p.radius)
       : add(e.pos, scale(norm(sub(p.pos, e.pos)), e.radius + p.radius + 1));
     if (touch) {
-      // Real docking (easy mode off): a slow, rolled-in, lined-up approach
-      // threads the slot instead of bouncing off the hull; anything else —
-      // wrong attitude, too fast, or a hit anywhere else on the station —
-      // costs hull and cargo. g.hitCooldown keeps one scrape to one hit.
+      // Real docking (easy mode off): a slow, lined-up approach threads the
+      // slot instead of bouncing off the hull; anything else — off the axis,
+      // the nose not pointing in, too fast, or a hit anywhere else on the
+      // station — costs hull and cargo. g.hitCooldown keeps one scrape to one
+      // hit.
       if (e.type === 'station' && !g.easyDock) {
         const l = lane(g);
         if (linedUp(l) && p.speed < DOCK_SPEED) {
@@ -2476,7 +2476,6 @@ export function stepGame(g, input, dt) {
       if (!g.autoDock && sd < 3000) {
         const l = lane(g);
         const hint = p.speed >= DOCK_SPEED ? 'SLOW TO <120 m/s TO DOCK'
-          : l.roll <= 0.85 ? 'MATCH THE STATION ROTATION'
           : (l.facing <= 0.9 || l.lat >= SLOT_HALF) ? 'LINE UP WITH THE DOCKING SLOT'
           : '';
         if (hint && !g.messages.some((m) => m.text.startsWith(hint.slice(0, 8)))) {

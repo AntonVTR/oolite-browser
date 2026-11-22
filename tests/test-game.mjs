@@ -734,14 +734,23 @@ assert.strictEqual(missileCap(racks), cap0 + 1, 'which raises the pylon count');
 assert.ok(buyEquipment(racks, 'EQ_MISSILE'), 'and it can be done again');
 assert.strictEqual(missileCap(racks), cap0 + 2, 'each rack is kept');
 
-// ---- real docking: match the station, line up, thread the slot (#6) --------
+// ---- real docking: line up, thread the slot (#6) ----------------------------
 // Every game above runs with the start-screen checkbox off, so these are the
 // default rules. A fresh quiet game has the station at the origin with an
 // identity orientation, so the slot mouth sits at (0,0,500) and its axis runs
-// out along +Z: a clean approach flies -Z, rolled with the station.
+// out along +Z: a clean approach flies -Z, nose into the sleeve.
 
-// On the axis, nose in, rolled with the station, under the limit — it
-// threads the sleeve and docks.
+// The station holds still: if it turned, the sleeve would sweep past an
+// approach and the slot would be a moving target.
+const still = quiet();
+still.player.speed = 0;
+still.player.throttle = 0;
+const stillQuat = still.station.quat.slice();
+run(still, noInput(), 10);
+assert.deepStrictEqual(still.station.quat, stillQuat, 'the station never turns');
+assert.strictEqual(still.station.spin, 0, 'and its spin rate says so');
+
+// On the axis, nose in, under the limit — it threads the sleeve and docks.
 const clean = quiet();
 assert.strictEqual(clean.easyDock, false, 'real docking is the default');
 clean.player.pos = [0, 0, 900]; // 400 m out from the slot mouth
@@ -751,8 +760,9 @@ clean.player.throttle = 100 / clean.player.maxSpeed;
 run(clean, noInput(), 6);
 assert.strictEqual(clean.phase, 'docked', 'a slow aligned approach docks');
 
-// Rolled 90° onto the slot: even a slow approach is refused until the ship
-// matches the station's rotation — and the scrape costs hull and cargo.
+// Rolled 90° onto the slot: roll is not judged — the original has no roll
+// gate either (DockEntity shipIsInDockingCorridor: tests the ship's box in
+// the port frame) — so a rolled approach that is otherwise lined up docks.
 const rolled = quiet();
 rolled.player.pos = [0, 0, 900];
 rolled.player.quat = [Math.SQRT1_2, Math.SQRT1_2, 0, 0]; // nose in, rolled 90°
@@ -761,9 +771,9 @@ rolled.player.throttle = 100 / rolled.player.maxSpeed;
 rolled.player.cargo = { food: 3 };
 const rolledShield = rolled.player.fwdShield;
 run(rolled, noInput(), 6);
-assert.notStrictEqual(rolled.phase, 'docked', 'a rolled approach never docks');
-assert.ok(rolled.player.fwdShield < rolledShield, 'the scrape costs shield');
-assert.ok(cargoUsed(rolled) < 3, 'and it costs cargo');
+assert.strictEqual(rolled.phase, 'docked', 'a rolled approach still docks');
+assert.ok(rolled.player.fwdShield >= rolledShield, 'and nothing scrapes on the way in');
+assert.strictEqual(cargoUsed(rolled), 3, 'and the hold comes through untouched');
 
 // Hot on the lane: the corridor spits the ship out and takes hull and cargo.
 const hot = quiet();
@@ -777,6 +787,18 @@ run(hot, noInput(), 6);
 assert.notStrictEqual(hot.phase, 'docked', 'a hot approach never docks');
 assert.ok(hot.player.fwdShield < hotShield, 'and it costs shield');
 assert.ok(cargoUsed(hot) < 3, 'and it costs cargo');
+
+// Off the axis: the lateral budget is what refuses a sloppy approach — slow
+// and nose-in is not enough when the ship sits outside the slot.
+const off = quiet();
+off.player.pos = [200, 0, 560]; // 200 m off the axis, at the mouth
+off.player.quat = [0, 1, 0, 0];
+off.player.speed = 100;
+off.player.throttle = 100 / off.player.maxSpeed;
+const offShield = off.player.fwdShield;
+run(off, noInput(), 3);
+assert.notStrictEqual(off.phase, 'docked', 'an off-axis approach never docks');
+assert.ok(off.player.fwdShield < offShield, 'and the scrape costs shield');
 
 // Easy mode (the checkbox on) keeps the shortcut: success is the market dock
 // above; a DOCK request over 250 m/s is refused, contact or not.
@@ -859,11 +881,13 @@ assert.strictEqual(air.phase, 'flight', 'the ship is left alone out here');
 assert.ok(air.player.fwdShield >= airShield, 'empty space in front of the slot does not bounce you');
 assert.ok(air.player.pos[2] > 500, 'and it never gets shoved through the hull');
 
-// …but the face itself still stops a rolled ship: the body reaches the
-// 500 m face from 74 m out, and a rolled attitude there is a scrape.
+// …but the face itself still stops a ship that is not pointed into the slot:
+// the body reaches the 500 m face from 74 m out, and a nose-out attitude
+// there is a scrape, not a pass-through.
 air.player.pos = [0, 0, 560];
+air.player.quat = [0, 0, 0, 1]; // nose pointing away from the slot
 run(air, noInput(), 2);
-assert.ok(air.player.fwdShield < airShield, 'the face still scrapes a rolled approach');
+assert.ok(air.player.fwdShield < airShield, 'the face still scrapes a nose-out approach');
 assert.ok(air.player.pos[2] > 500, 'the shove exits through the mouth, not the hull');
 assert.strictEqual(air.phase, 'flight', 'and it still refuses to dock');
 
