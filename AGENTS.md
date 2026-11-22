@@ -15,6 +15,23 @@ dependencies** — there is no `package.json`; Node is only there to run tests.
 - `upstream/` — the original Oolite sources; cite file/method when porting
   behaviour (`ShipEntity.m`, `OOCommodities.m`, …).
 
+## Code graph
+
+`graphify-out/` holds a knowledge graph of the code (tree-sitter AST, local, no
+API cost). Prefer it over grepping for structural questions — what calls X, how
+A reaches B:
+
+```bash
+graphify explain "createGame"     # node, source line, top connections
+graphify path "Hud" "jump"        # shortest path between two concepts
+graphify update .                 # after code changes — keeps it current
+```
+
+`graphify-out/GRAPH_REPORT.md` gives broad orientation (communities, god
+nodes). Do not treat the graph as evidence about its own correctness, and fall
+back to `grep`/`read` for content questions — `.plist`/`.dat` assets are not in
+the graph (33 files have no supported extractor).
+
 ## Before you commit
 
 ```bash
