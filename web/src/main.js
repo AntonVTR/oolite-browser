@@ -6,7 +6,7 @@ import { Hud, BOTTOM_BAND } from './hud.js';
 import { GameAudio } from './audio.js';
 import { setupKeyboard, setupMouse, setupGamepad, updateCtrl } from './controls.js';
 import { setupTouchControls, clearTouchEdges, syncThrottleKnob, debounce } from './touch.js';
-import { loadAssets, SHIP_DEFS, resolveTextureName } from './assets.js';
+import { loadAssets, loadTextures, SHIP_DEFS, resolveTextureName } from './assets.js';
 import {
   createGame, stepGame, launch, launchTrip, marketFor, buyGood, sellGood, cargoUsed,
   shipyardFor, tradeInValue, buyShip, shipName, zoomScanner, jump,
@@ -16,7 +16,7 @@ import {
 } from './game.js';
 import { galaxySystems } from './galaxy.js';
 import { missionView, acceptMission } from './missions.js';
-import { hasSave, hasAnySlot, saveGame, loadGame, defaultStorage, slotInfo } from './save.js';
+import { hasSave, hasAnySlot, saveGame, loadGame, defaultStorage, slotInfo, SAVE_KEY } from './save.js';
 import { openSlots, closeSlots } from './slots.js';
 import { toggleChart, closeChart, isChartOpen } from './chart.js';
 import { toggleStatus, closeStatus, isStatusOpen } from './status.js';
@@ -38,6 +38,7 @@ let jumpRequested = false;
 let prevPhase = 'title';
 let storage = null; // localStorage, or null where storage is unavailable
 let storageWarn = ''; // why the last auto-save failed, shown on the station screen
+let foreignSave = false; // another tab wrote the save since this one last did
 let easyBox = null; // the EASY MODE checkbox on the title screen (#6)
 const EASY_KEY = 'oolite.easyDock';
 let lastT = performance.now();
@@ -86,7 +87,15 @@ function buildGpu() {
   for (const [id, parsed] of Object.entries(assets.parsedMeshes)) {
     gpu[id] = renderer.uploadMesh(parsed);
   }
-  // material index → GL texture, per mesh
+  buildMeshTex();
+  boomTex = renderer.makeTexture(glowTexture('rgba(255,255,255,1)', 'rgba(255,140,30,0.85)'));
+  stars = buildStars();
+}
+
+// material index → GL texture, per mesh. Runs once against the still-empty
+// texture bag — every mesh draws untextured — and again when the background
+// fetch lands, so the title screen never waits on the 35 MB of PNGs.
+function buildMeshTex() {
   const where = {};
   for (const [key, def] of Object.entries(SHIP_DEFS)) {
     where[key] = { entry: assets.plists.shipdata[def.shipKey], base: def.model };
@@ -97,16 +106,16 @@ function buildGpu() {
       };
     }
   }
+  const next = {};
   for (const [id, parsed] of Object.entries(assets.parsedMeshes)) {
     const info = where[id] || {};
-    meshTex[id] = parsed.materials.map((mat) => {
+    next[id] = parsed.materials.map((mat) => {
       const png = resolveTextureName(mat, info.entry, info.base);
       const img = png && assets.textures[png];
       return img ? renderer.makeTexture(img) : null;
     });
   }
-  boomTex = renderer.makeTexture(glowTexture('rgba(255,255,255,1)', 'rgba(255,140,30,0.85)'));
-  stars = buildStars();
+  meshTex = next;
 }
 
 // ---------------------------------------------------------------------------
@@ -446,9 +455,12 @@ function syncPhase() {
   if (game.phase === 'docked') {
     // Auto-save on docking. A refused write (private mode, quota) would
     // otherwise lose the commander with no word said, so say it on the
-    // screen the player is about to read.
+    // screen the player is about to read — including a save this tab has
+    // just overwritten in another tab.
     storageWarn = saveGame(game, storage)
-      ? '' : 'SAVE FAILED — storage is full or blocked, this game is NOT saved';
+      ? (foreignSave ? 'OVERWROTE A SAVE WRITTEN IN ANOTHER TAB' : '')
+      : 'SAVE FAILED — storage is full or blocked, this game is NOT saved';
+    foreignSave = false;
     el('touch').classList.add('hidden');
     buildMarketScreen();
     el('docked').classList.remove('hidden');
@@ -531,7 +543,8 @@ function frame(now) {
     hud.draw(game);
     audio.setEngine(0, false);
   } else {
-    hud.draw(game);
+    // docked: the station screen covers the HUD, so stop redrawing it at
+    // 60 fps behind an opaque panel — the canvas keeps its last frame
     audio.setEngine(0, false);
   }
 
@@ -559,10 +572,25 @@ async function main() {
   hud = new Hud(hudCanvas, assets);
   hud.resize(window.innerWidth, window.innerHeight, Math.min(window.devicePixelRatio || 1, 2));
   buildGpu();
+  // The PNGs are the 35 MB the title screen must not wait for: ships draw
+  // untextured until they land, then the material map is rebuilt.
+  loadTextures(assets).then(buildMeshTex, (err) => console.error('textures:', err));
 
   game = createGame(assets);
   audio = new GameAudio(assets.sounds);
   storage = defaultStorage();
+  // Closing the tab mid-flight used to take everything since the last dock
+  // with it — the auto-save only runs on docking. applySave() rebuilds a
+  // flight save next to the station, so writing one here is safe at any moment.
+  window.addEventListener('pagehide', () => {
+    if (game && (game.phase === 'flight' || game.phase === 'docked')) saveGame(game, storage);
+  });
+  // Two tabs share one save key: whoever docks last writes and the other
+  // commander is gone. Nothing can stop that, so the overwrite is at least
+  // said out loud on the screen that writes the next one.
+  window.addEventListener('storage', (e) => {
+    if (e.key === SAVE_KEY) foreignSave = true;
+  });
 
   setupKeyboard(window);
   setupMouse(glCanvas);
@@ -821,8 +849,10 @@ async function main() {
     // ?witchspace forces the mis-jump (#10): the smoke checks the stranded
     // state — no station, three Thargoids — for console errors
     if (query.has('witchspace')) {
-      game.rand = () => 0; // the interception roll always succeeds
-      jump(game);
+      const rand = game.rand; // restore at once: a stuck () => 0 mis-jumps
+      game.rand = () => 0;     // every later jump (game.js:1290) and docks
+      jump(game);              // a trumble (game.js:1083) in this tab
+      game.rand = rand;
     }
     // ?dodo swaps in a dodecahedron station from a system whose real
     // planetinfo says so, for the headless smoke (#13)

@@ -13,6 +13,9 @@ if ! git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1; then
   exit 1
 fi
 
+# Nothing ships on a red suite: set -e stops the push at the first failure.
+for t in "$ROOT"/tests/*.mjs; do node "$t"; done
+
 cp -r "$ROOT/web/." "$WORK/"
 # Pages serves index.html at the directory root; the site is self-contained.
 printf '/* off */\nUser-agent: *\nDisallow:\n' > "$WORK/robots.txt"

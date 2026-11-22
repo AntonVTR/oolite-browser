@@ -250,6 +250,12 @@ node tests/test-npcs.mjs      # NPC ecosystem: shuttle traffic, flee/engage stat
 node tests/test-lasers.mjs    # laser types on the fore/aft mounts, the mount switch, saves
 node tests/test-missiles.mjs  # missile lock: progress, break-lock, dumbfire, incoming seeker
 node tests/test-audio.mjs     # the auto-dock waltz: phrase data in range, six bars
+node tests/test-galaxy.mjs    # the eight galaxies: names, seeds, jump distances
+node tests/test-settings.mjs  # touch layout + gamepad bindings survive a bad blob
+node tests/test-controls.mjs  # gamepad one-press-per-action, wheel throttle decay
+node tests/test-page.mjs      # element ids the code asks for exist; textures load late
+# …or all of them at once (what tools/deploy.sh runs before publishing):
+for t in tests/*.mjs; do node "$t"; done
 python3 -m http.server 8099 --directory web   # local server
 # headless smoke test (console errors + screenshots):
 google-chrome --headless=new --virtual-time-budget=6000 --screenshot=/tmp/shot.png \

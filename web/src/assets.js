@@ -106,7 +106,27 @@ export async function loadAssets(onProgress = () => {}) {
     tick(`model/${def.model}`);
   }));
 
-  // textures: every material used by every mesh, resolved through shipdata
+  // sounds
+  total += SOUND_FILES.length;
+  await Promise.all(SOUND_FILES.map(async (s) => {
+    try {
+      const r = await fetch(`assets/sounds/${s}.ogg`);
+      if (r.ok) A.sounds[s] = await r.arrayBuffer();
+    } catch (e) { /* sound is optional */ }
+    tick(`sound/${s}`);
+  }));
+
+  onProgress(done, total, 'ready');
+  return A;
+}
+
+// Textures: every material used by every mesh, resolved through shipdata.
+// The 35 MB of PNGs are fetched after the title screen is up (main.js calls
+// this in the background) — a mesh whose texture has not landed yet draws
+// untextured, which render.js already handles by using the vertex colour,
+// so first paint never waits for them. One missing file is a log line, not
+// a game that refuses to start.
+export async function loadTextures(A) {
   const texJobs = new Map(); // png name -> url
   const addJob = (png) => { if (png) texJobs.set(png, `assets/textures/${png}`); };
   for (const [key, def] of Object.entries(SHIP_DEFS)) {
@@ -121,22 +141,11 @@ export async function loadAssets(onProgress = () => {}) {
       }
     }
   }
-  total += texJobs.size;
-  await Promise.all([...texJobs].map(async ([png, url]) => {
-    A.textures[png] = await fetchImage(url);
-    tick(`texture/${png}`);
-  }));
-
-  // sounds
-  total += SOUND_FILES.length;
-  await Promise.all(SOUND_FILES.map(async (s) => {
-    try {
-      const r = await fetch(`assets/sounds/${s}.ogg`);
-      if (r.ok) A.sounds[s] = await r.arrayBuffer();
-    } catch (e) { /* sound is optional */ }
-    tick(`sound/${s}`);
-  }));
-
-  onProgress(done, total, 'ready');
+  const jobs = [...texJobs];
+  const got = await Promise.allSettled(jobs.map(([, url]) => fetchImage(url)));
+  got.forEach((r, i) => {
+    if (r.status === 'fulfilled') A.textures[jobs[i][0]] = r.value;
+    else console.error(`texture ${jobs[i][0]}:`, r.reason);
+  });
   return A;
 }

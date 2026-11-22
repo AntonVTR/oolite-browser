@@ -23,9 +23,12 @@ canvas#gl, canvas#hud {
 }
 canvas#hud { pointer-events: none; }
 
-/* No scrolling, pinch-zoom or double-tap zoom on the game surfaces.
-   (Not on body: an ancestor `none` would also kill the docked screen's pan-y.) */
-#gl, #hud, #loading, #touch, .overlay { touch-action: none; }
+/* No scrolling, pinch-zoom or double-tap zoom on the flight surfaces.
+   (Not on body: an ancestor `none` would also kill the docked screen's pan-y.)
+   The menu overlays keep pinch-zoom so a player can enlarge the text
+   (WCAG 1.4.4); #docked and #setup keep their pan-y on top of it. */
+#gl, #hud, #loading, #touch { touch-action: none; }
+.overlay { touch-action: pinch-zoom; }
 
 .hidden { display: none !important; }
 
@@ -72,7 +75,7 @@ button.big { font-size: clamp(17px, 4.4vw, 24px); padding: 14px 30px; letter-spa
 #loading-label { font-size: 13px; opacity: 0.7; }
 
 /* ---- docked screen ---- */
-#docked { justify-content: flex-start; overflow-y: auto; touch-action: pan-y; padding: clamp(10px, 3vw, 24px); }
+#docked { justify-content: flex-start; overflow-y: auto; touch-action: pan-y pinch-zoom; padding: clamp(10px, 3vw, 24px); }
 .panel {
   /* 100% of the overlay's padded box: 96vw overflowed a phone viewport and
      pushed the market table's buttons off-screen */
@@ -203,7 +206,7 @@ button:disabled { opacity: 0.4; cursor: default; }
 }
 
 /* ---- CONTROLS setup page (setup.js) -------------------------------------- */
-#setup { justify-content: flex-start; overflow-y: auto; touch-action: pan-y; padding: clamp(10px, 3vw, 24px); }
+#setup { justify-content: flex-start; overflow-y: auto; touch-action: pan-y pinch-zoom; padding: clamp(10px, 3vw, 24px); }
 
 /* input tester: raw presses and what the debounce made of them */
 #input-log {
