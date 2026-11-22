@@ -32,6 +32,14 @@ nodes). Do not treat the graph as evidence about its own correctness, and fall
 back to `grep`/`read` for content questions — `.plist`/`.dat` assets are not in
 the graph (33 files have no supported extractor).
 
+## Git
+
+Follow https://docs.github.com/en/get-started/using-github/github-flow
+
+## Code principles
+
+Apply KISS, YAGNI, DRY, and SOLID principles
+
 ## Before you commit
 
 ```bash
