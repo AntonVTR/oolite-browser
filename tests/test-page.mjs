@@ -57,11 +57,17 @@ assert.ok(!loadAssets.includes('fetchImage('),
 assert.ok(src['main.js'].includes('loadTextures(assets)'),
   'main.js must fetch the textures in the background');
 
-// The loading bar must only ever climb: total was counted per phase, so the
-// bar filled to 100%, snapped back at every phase boundary and filled again.
-// fetch is stubbed to the files on disk, which is all loadAssets() asks for.
+// The loading bar must only ever climb, finish at 100% and never leap: the
+// load used to run in phases (plists, then models, then sounds), so the bar
+// sat on a plateau for a whole phase and then jumped. fetch is stubbed to the
+// files on disk, with hud.plist held open to see what starts while it waits.
 const realFetch = globalThis.fetch;
+const issued = [];
+let release;
+const held = new Promise((resolve) => { release = resolve; });
 globalThis.fetch = async (url) => {
+  issued.push(url);
+  if (url.endsWith('hud.plist')) await held;
   const buf = await readFile(join(root, 'web', url));
   return {
     ok: true, status: 200,
@@ -70,13 +76,23 @@ globalThis.fetch = async (url) => {
   };
 };
 const seen = [];
+const loading = runLoad((done, total) => seen.push(total ? done / total : 0));
+const deadline = Date.now() + 2000;
+while (!issued.some((u) => u.includes('assets/models/')) && Date.now() < deadline) {
+  await new Promise((r) => setTimeout(r, 10));
+}
+const startedWhileHeld = issued.some((u) => u.includes('assets/models/'));
+release();
 try {
-  await runLoad((done, total) => seen.push(total ? done / total : 0));
+  await loading;
 } finally {
   globalThis.fetch = realFetch;
 }
 assert.ok(seen.length > 1, 'loadAssets() must report progress');
 assert.ok(seen.every((p, i) => i === 0 || p >= seen[i - 1]), `progress went backwards: ${seen.join(', ')}`);
 assert.equal(seen.at(-1), 1, 'progress must finish at 100%');
+const leap = Math.max(...seen.map((p, i) => (i ? p - seen[i - 1] : 0)));
+assert.ok(leap <= 0.1, `progress leapt ${(leap * 100).toFixed(0)}% in one tick`);
+assert.ok(startedWhileHeld, 'models must start while a plist is still pending — the load must not run in phases');
 
 console.log(`page contract ok: ${asked.size} ids asked for, ${defined.size} defined, progress ${seen.length} ticks`);

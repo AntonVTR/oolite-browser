@@ -71,7 +71,7 @@ button.big { font-size: clamp(17px, 4.4vw, 24px); padding: 14px 30px; letter-spa
   width: min(70vw, 420px); height: 10px;
   border: 1px solid #2f6; border-radius: 5px; overflow: hidden;
 }
-#loading-fill { height: 100%; width: 0%; background: #3f6; transition: width 0.15s; }
+#loading-fill { height: 100%; width: 0%; background: #3f6; transition: width 0.12s linear; }
 #loading-label { font-size: 13px; opacity: 0.7; }
 
 /* ---- docked screen ---- */

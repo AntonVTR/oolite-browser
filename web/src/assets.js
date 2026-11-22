@@ -82,37 +82,53 @@ export function resolveTextureName(matName, entry, modelBase) {
  */
 export async function loadAssets(onProgress = () => {}) {
   const A = { plists: {}, textures: {}, sounds: {}, parsedMeshes: {} };
-  // config plists
   const plistNames = ['shipdata', 'hud', 'crosshairs', 'planetinfo', 'equipment', 'shipyard', 'trade-goods'];
-  // The whole job counted up front: adding to total as each phase started made
-  // done/total snap back to 25% (and again to 68%) at every phase boundary.
+
+  // One job per file, every request issued at once. Grouped into phases
+  // (plists, then models, then sounds) the bar sat on a plateau for the whole
+  // of one phase and then leapt — the phases were run one after another, so
+  // the bar advanced in three big steps instead of steadily.
+  const jobs = [
+    ...plistNames.map((name) => ({
+      label: `config/${name}`,
+      run: async () => {
+        A.plists[name] = parsePlist(await fetchText(`assets/config/${name}.plist`));
+      },
+    })),
+    ...Object.entries(SHIP_DEFS).flatMap(([key, def]) => [
+      {
+        label: `model/${def.model}`,
+        run: async () => {
+          A.parsedMeshes[key] = parseMesh(await fetchText(`assets/models/${def.model}.dat`));
+        },
+      },
+      ...(def.subentities || []).map((sub) => ({
+        label: `model/${sub}`,
+        run: async () => {
+          A.parsedMeshes[sub] = parseMesh(await fetchText(`assets/models/${sub}.dat`));
+        },
+      })),
+    ]),
+    ...SOUND_FILES.map((s) => ({
+      label: `sound/${s}`,
+      run: async () => {
+        try {
+          const r = await fetch(`assets/sounds/${s}.ogg`);
+          if (r.ok) A.sounds[s] = await r.arrayBuffer();
+        } catch (e) { /* sound is optional */ }
+      },
+    })),
+  ];
+
+  // The whole job counted up front, one tick per file: a total that grew as
+  // phases started made done/total snap back at every phase boundary.
+  const total = jobs.length;
   let done = 0;
-  const total = plistNames.length + Object.keys(SHIP_DEFS).length + SOUND_FILES.length;
   const tick = (label) => { done++; onProgress(done, total, label); };
 
-  // Every group is fetched in parallel within itself: ~80 requests issued one
-  // after another cost the sum of every latency instead of the slowest one.
-  await Promise.all(plistNames.map(async (name) => {
-    A.plists[name] = parsePlist(await fetchText(`assets/config/${name}.plist`));
-    tick(`config/${name}`);
-  }));
-
-  // models (main hull + station subentities)
-  await Promise.all(Object.entries(SHIP_DEFS).map(async ([key, def]) => {
-    A.parsedMeshes[key] = parseMesh(await fetchText(`assets/models/${def.model}.dat`));
-    for (const sub of def.subentities || []) {
-      A.parsedMeshes[sub] = parseMesh(await fetchText(`assets/models/${sub}.dat`));
-    }
-    tick(`model/${def.model}`);
-  }));
-
-  // sounds
-  await Promise.all(SOUND_FILES.map(async (s) => {
-    try {
-      const r = await fetch(`assets/sounds/${s}.ogg`);
-      if (r.ok) A.sounds[s] = await r.arrayBuffer();
-    } catch (e) { /* sound is optional */ }
-    tick(`sound/${s}`);
+  await Promise.all(jobs.map(async (job) => {
+    await job.run();
+    tick(job.label);
   }));
 
   onProgress(done, total, 'ready');
