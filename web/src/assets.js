@@ -82,22 +82,22 @@ export function resolveTextureName(matName, entry, modelBase) {
  */
 export async function loadAssets(onProgress = () => {}) {
   const A = { plists: {}, textures: {}, sounds: {}, parsedMeshes: {} };
+  // config plists
+  const plistNames = ['shipdata', 'hud', 'crosshairs', 'planetinfo', 'equipment', 'shipyard', 'trade-goods'];
+  // The whole job counted up front: adding to total as each phase started made
+  // done/total snap back to 25% (and again to 68%) at every phase boundary.
   let done = 0;
-  let total = 0;
+  const total = plistNames.length + Object.keys(SHIP_DEFS).length + SOUND_FILES.length;
   const tick = (label) => { done++; onProgress(done, total, label); };
 
   // Every group is fetched in parallel within itself: ~80 requests issued one
   // after another cost the sum of every latency instead of the slowest one.
-  // config plists
-  const plistNames = ['shipdata', 'hud', 'crosshairs', 'planetinfo', 'equipment', 'shipyard', 'trade-goods'];
-  total += plistNames.length;
   await Promise.all(plistNames.map(async (name) => {
     A.plists[name] = parsePlist(await fetchText(`assets/config/${name}.plist`));
     tick(`config/${name}`);
   }));
 
   // models (main hull + station subentities)
-  total += Object.keys(SHIP_DEFS).length;
   await Promise.all(Object.entries(SHIP_DEFS).map(async ([key, def]) => {
     A.parsedMeshes[key] = parseMesh(await fetchText(`assets/models/${def.model}.dat`));
     for (const sub of def.subentities || []) {
@@ -107,7 +107,6 @@ export async function loadAssets(onProgress = () => {}) {
   }));
 
   // sounds
-  total += SOUND_FILES.length;
   await Promise.all(SOUND_FILES.map(async (s) => {
     try {
       const r = await fetch(`assets/sounds/${s}.ogg`);

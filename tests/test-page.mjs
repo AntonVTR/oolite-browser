@@ -6,6 +6,8 @@
 
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
+import { loadAssets as runLoad } from '../web/src/assets.js';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -55,4 +57,26 @@ assert.ok(!loadAssets.includes('fetchImage('),
 assert.ok(src['main.js'].includes('loadTextures(assets)'),
   'main.js must fetch the textures in the background');
 
-console.log(`page contract ok: ${asked.size} ids asked for, ${defined.size} defined`);
+// The loading bar must only ever climb: total was counted per phase, so the
+// bar filled to 100%, snapped back at every phase boundary and filled again.
+// fetch is stubbed to the files on disk, which is all loadAssets() asks for.
+const realFetch = globalThis.fetch;
+globalThis.fetch = async (url) => {
+  const buf = await readFile(join(root, 'web', url));
+  return {
+    ok: true, status: 200,
+    text: () => Promise.resolve(buf.toString('utf8')),
+    arrayBuffer: () => Promise.resolve(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength)),
+  };
+};
+const seen = [];
+try {
+  await runLoad((done, total) => seen.push(total ? done / total : 0));
+} finally {
+  globalThis.fetch = realFetch;
+}
+assert.ok(seen.length > 1, 'loadAssets() must report progress');
+assert.ok(seen.every((p, i) => i === 0 || p >= seen[i - 1]), `progress went backwards: ${seen.join(', ')}`);
+assert.equal(seen.at(-1), 1, 'progress must finish at 100%');
+
+console.log(`page contract ok: ${asked.size} ids asked for, ${defined.size} defined, progress ${seen.length} ticks`);
