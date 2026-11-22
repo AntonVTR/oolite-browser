@@ -1,0 +1,942 @@
+// Browser entry point: loads Oolite's real assets, builds GPU resources and
+// runs the loop (input → game.js → renderer → HUD → audio).
+
+import { Renderer, viewQuat } from './render.js';
+import { Hud, BOTTOM_BAND } from './hud.js';
+import { GameAudio } from './audio.js';
+import { setupKeyboard, setupMouse, setupGamepad, updateCtrl } from './controls.js';
+import { setupTouchControls, clearTouchEdges, syncThrottleKnob, debounce } from './touch.js';
+import { loadAssets, loadTextures, SHIP_DEFS, resolveTextureName } from './assets.js';
+import {
+  createGame, stepGame, launch, launchTrip, marketFor, buyGood, sellGood, cargoUsed,
+  shipyardFor, tradeInValue, buyShip, shipName, zoomScanner, jump,
+  equipmentFor, buyEquipment, spawnThargoid, systemsIn, rankName, legalStatus,
+  pushMessage, spawnStation, SUN_POS, SUN_R, PLANET_POS, PLANET_R,
+  setView, cycleView, cycleLaserMount, jdrive,
+} from './game.js';
+import { galaxySystems } from './galaxy.js';
+import { missionView, acceptMission } from './missions.js';
+import { hasSave, hasAnySlot, saveGame, loadGame, defaultStorage, slotInfo, SAVE_KEY } from './save.js';
+import { openSlots, closeSlots } from './slots.js';
+import { toggleChart, closeChart, isChartOpen } from './chart.js';
+import { toggleStatus, closeStatus, isStatusOpen } from './status.js';
+import { openSetup, closeSetup, isSetupOpen, initSettings, setPhaseSource } from './setup.js';
+import { mat4, mat4FromQuatPosScale, quatRotate, add, scale as vscale } from './math.js';
+
+const el = (id) => document.getElementById(id);
+const glCanvas = el('gl');
+const hudCanvas = el('hud');
+
+// The sun sits behind and above the launch heading so ships ahead are lit, as
+// in Elite. Its position and radius live in game.js — the fuel scoops skim it,
+// and the altitude dial measures against the planet that lives there too.
+
+let renderer, hud, audio, assets, game;
+let stars, sphereGpu, gpu = {}, meshTex = {};
+let boomTex;
+let jumpRequested = false;
+let prevPhase = 'title';
+let storage = null; // localStorage, or null where storage is unavailable
+let storageWarn = ''; // why the last auto-save failed, shown on the station screen
+let foreignSave = false; // another tab wrote the save since this one last did
+let easyBox = null; // the EASY MODE checkbox on the title screen (#6)
+const EASY_KEY = 'oolite.easyDock';
+let lastT = performance.now();
+let fpsSmooth = 60;
+
+// ---------------------------------------------------------------------------
+// procedural explosion sprite (no explosion art in the Oolite asset subset)
+function makeCanvas(size) {
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  return [c, c.getContext('2d')];
+}
+
+function glowTexture(inner, outer) {
+  const [c, x] = makeCanvas(128);
+  const g = x.createRadialGradient(64, 64, 0, 64, 64, 64);
+  g.addColorStop(0, inner);
+  g.addColorStop(0.4, outer);
+  g.addColorStop(1, 'rgba(0,0,0,0)');
+  x.fillStyle = g;
+  x.fillRect(0, 0, 128, 128);
+  return c;
+}
+
+// ---------------------------------------------------------------------------
+function buildStars() {
+  const n = 1400;
+  const pos = [], col = [], size = [];
+  for (let i = 0; i < n; i++) {
+    const u = Math.random() * 2 - 1;
+    const th = Math.random() * Math.PI * 2;
+    const s = Math.sqrt(1 - u * u);
+    const r = 600000;
+    pos.push(Math.cos(th) * s * r, u * r, Math.sin(th) * s * r);
+    const warm = Math.random();
+    if (warm < 0.15) col.push(1, 0.85, 0.6);
+    else if (warm < 0.3) col.push(0.7, 0.85, 1);
+    else col.push(1, 1, 1);
+    size.push(1 + Math.random() * 2.4);
+  }
+  return renderer.makePoints(pos, col, size);
+}
+
+function buildGpu() {
+  sphereGpu = renderer.uploadSphere();
+  for (const [id, parsed] of Object.entries(assets.parsedMeshes)) {
+    gpu[id] = renderer.uploadMesh(parsed);
+  }
+  buildMeshTex();
+  boomTex = renderer.makeTexture(glowTexture('rgba(255,255,255,1)', 'rgba(255,140,30,0.85)'));
+  stars = buildStars();
+}
+
+// material index → GL texture, per mesh. Runs once against the still-empty
+// texture bag — every mesh draws untextured — and again when the background
+// fetch lands, so the title screen never waits on the 35 MB of PNGs.
+function buildMeshTex() {
+  const where = {};
+  for (const [key, def] of Object.entries(SHIP_DEFS)) {
+    where[key] = { entry: assets.plists.shipdata[def.shipKey], base: def.model };
+    for (const sub of def.subentities || []) {
+      where[sub] = {
+        entry: assets.plists.shipdata[sub] || assets.plists.shipdata[def.shipKey],
+        base: sub,
+      };
+    }
+  }
+  const next = {};
+  for (const [id, parsed] of Object.entries(assets.parsedMeshes)) {
+    const info = where[id] || {};
+    next[id] = parsed.materials.map((mat) => {
+      const png = resolveTextureName(mat, info.entry, info.base);
+      const img = png && assets.textures[png];
+      return img ? renderer.makeTexture(img) : null;
+    });
+  }
+  meshTex = next;
+}
+
+// ---------------------------------------------------------------------------
+const tmpModel = mat4();
+function modelMatrix(pos, quat, s = 1) {
+  return mat4FromQuatPosScale(tmpModel, quat, pos, s);
+}
+
+function drawEntity(e) {
+  const key = e.shipKey;
+  const gmesh = gpu[key];
+  if (!gmesh) return;
+  renderer.drawMesh(gmesh, modelMatrix(e.pos, e.quat, 1), {
+    textures: meshTex[key],
+    sunDir: renderer.sunDirView(SUN_POS),
+    fallbackColor: e.color.concat(1),
+  });
+  if (e.type !== 'station') return;
+  // Station subentities: hull faceplate, lit triangles and the dock sleeve —
+  // whichever station type this is (#13). The sleeve sits on the station's
+  // own dock offset, the rest at the origin, as shipdata places them.
+  const subs = (SHIP_DEFS[key] && SHIP_DEFS[key].subentities) || [];
+  for (const sub of subs) {
+    const sg = gpu[sub];
+    if (!sg) continue;
+    const off = sub.endsWith('_dock') ? (e.dockOffset || [0, 0, 0]) : [0, 0, 0];
+    const world = add(e.pos, quatRotate(e.quat, off));
+    renderer.drawMesh(sg, modelMatrix(world, e.quat, 1), {
+      textures: meshTex[sub],
+      sunDir: renderer.sunDirView(SUN_POS),
+      fallbackColor: [0.7, 0.7, 0.75, 1],
+    });
+  }
+}
+
+function renderScene() {
+  const p = game.player;
+  // The view direction (#14) turns the camera about the ship's axes; the
+  // sim, the laser and the target logic all stay on the ship's nose.
+  renderer.beginFrame(p.pos, viewQuat(game.view, p.quat));
+  const sunDir = renderer.sunDirView(SUN_POS);
+
+  renderer.drawStars(stars);
+
+  // shortcut: no planet art ships with the copied asset subset, so the world
+  // is a flat-shaded sphere instead of a textured globe.
+  renderer.drawMesh(sphereGpu, modelMatrix(PLANET_POS, [0, 0, 0, 1], PLANET_R), {
+    fallbackColor: [0.32, 0.55, 0.80, 1],
+    sunDir,
+    ambient: [0.12, 0.12, 0.16],
+    sunCol: [1.0, 0.98, 0.92],
+  });
+  renderer.drawMesh(sphereGpu, modelMatrix(SUN_POS, [0, 0, 0, 1], SUN_R), {
+    tint: [1, 1, 0.85, 1],
+    emissive: 1.4,
+    ambient: [0, 0, 0],
+    sunCol: [0, 0, 0],
+  });
+
+  for (const e of game.entities) drawEntity(e);
+
+  for (const s of game.shots) {
+    // red hurts you, amber is one NPC shooting another (#15), green is yours
+    const col = s.hostile ? [1, 0.25, 0.15, 0.9]
+      : s.npc ? [1, 0.8, 0.2, 0.95]
+      : [0.4, 1, 0.4, 0.95];
+    renderer.drawBeam(s.from, s.to, 3.5, col);
+    // The light of the shot: a flash at the gun and a spark where it lands.
+    // Billboards carry screen size of their own, so they show even when the
+    // beam is fired straight ahead — its ribbon then projects to a point.
+    renderer.drawBillboard(s.from, 5, 5, boomTex, col);
+    if (s.hit) renderer.drawBillboard(s.to, 14, 14, boomTex, col);
+  }
+  // missiles: a bright motor trail with a glowing tip
+  for (const m of game.missiles) {
+    const tail = add(m.pos, vscale(m.vel, -0.06));
+    renderer.drawBeam(tail, m.pos, 4, m.hostile ? [1, 0.35, 0.2, 0.95] : [1, 0.85, 0.35, 0.95]);
+    renderer.drawBillboard(m.pos, 9, 9, boomTex, [1, 0.9, 0.6, 0.85]);
+  }
+  for (const x of game.explosions) {
+    const t = 1 - x.life / x.maxLife;
+    const size = x.size * (0.5 + t * 1.4);
+    renderer.drawBillboard(x.pos, size, size, boomTex, [1, 1, 1, Math.max(0, 1 - t)]);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// project a world point to normalised screen coords (0..1, y down)
+function project(pos) {
+  const v = renderer.view, pr = renderer.proj;
+  const vx = v[0] * pos[0] + v[4] * pos[1] + v[8] * pos[2] + v[12];
+  const vy = v[1] * pos[0] + v[5] * pos[1] + v[9] * pos[2] + v[13];
+  const vz = v[2] * pos[0] + v[6] * pos[1] + v[10] * pos[2] + v[14];
+  const cx = pr[0] * vx + pr[4] * vy + pr[8] * vz + pr[12];
+  const cy = pr[1] * vx + pr[5] * vy + pr[9] * vz + pr[13];
+  const cw = pr[3] * vx + pr[7] * vy + pr[11] * vz + pr[15];
+  if (cw <= 0.0001) return null;
+  return { x: (cx / cw) * 0.5 + 0.5, y: 0.5 - (cy / cw) * 0.5 };
+}
+
+function updateTargetReticle() {
+  const t = game.target;
+  if (!t) return;
+  const a = project(t.pos);
+  if (!a) { t.onScreen = false; return; }
+  // radius estimate along the camera's own starboard, so the box keeps its
+  // size in the side and aft views too
+  const right = quatRotate(renderer.camQuat, [1, 0, 0]);
+  const b = project(add(t.pos, vscale(right, t.radius)));
+  const w = glCanvas.clientWidth, h = glCanvas.clientHeight;
+  t.onScreen = a.x > -0.15 && a.x < 1.15 && a.y > -0.15 && a.y < 1.15;
+  t.sx = a.x;
+  t.sy = a.y;
+  t.rpx = b ? Math.max(8, Math.abs(b.x - a.x) * w) : 24;
+  t.range = Math.hypot(
+    t.pos[0] - game.player.pos[0],
+    t.pos[1] - game.player.pos[1],
+    t.pos[2] - game.player.pos[2]
+  );
+  t.name = t.name || 'SHIP';
+}
+
+function playEvents() {
+  for (const ev of game.events) {
+    switch (ev.type) {
+      case 'laser': audio.play('laser', { volume: 0.45 }); break;
+      case 'missile': audio.play('missile', { volume: 0.6 }); break;
+      case 'ecm': audio.play('beep', { volume: 0.5, rate: 0.7 }); break;
+      case 'hit': audio.play('hit', { volume: 0.5 }); break;
+      case 'boom': audio.play('bigbang', { volume: 0.7 }); break;
+      case 'beep': audio.play('beep', { volume: 0.35 }); break;
+      case 'buy': audio.play('buy', { volume: 0.6 }); break;
+      case 'sell': audio.play('sell', { volume: 0.6 }); break;
+      case 'docking': audio.play('guiclick', { volume: 0.6 }); break;
+      case 'jump': audio.play('beep', { volume: 0.7, rate: 0.6 }); break;
+      case 'jdrive': audio.play('beep', { volume: 0.7, rate: 1.7 }); break; // blocked (#20)
+      case 'jdriveHop': audio.play('beep', { volume: 0.5, rate: 0.8 }); break;
+      default: break;
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// The Navy mission briefing on the docked screen (#7): the offer with its
+// ACCEPT button, or the run under way with its progress line.
+function buildMissionScreen() {
+  const box = el('dock-mission');
+  const view = missionView(game);
+  if (!view) { box.classList.add('hidden'); box.textContent = ''; return; }
+  box.classList.remove('hidden');
+  box.textContent = '';
+  const title = document.createElement('div');
+  title.className = 'mtitle';
+  title.textContent = view.def.title;
+  const text = document.createElement('div');
+  text.textContent = view.text;
+  box.append(title, text);
+  if (view.mode === 'offer') {
+    const accept = document.createElement('button');
+    accept.textContent = 'ACCEPT MISSION';
+    accept.addEventListener('click', () => {
+      const got = acceptMission(game, view.def.id);
+      if (got) pushMessage(game, `MISSION ACCEPTED — ${got.title}`, GREEN, 6);
+      playEvents();
+      buildMarketScreen();
+    });
+    box.append(accept);
+  }
+}
+
+// The HUD's green, for the accept confirmation message (game.js keeps its
+// palette module-private).
+const GREEN = [0, 1, 0];
+
+function buildMarketScreen() {
+  const sys = systemsIn(game)[game.systemIndex];
+  el('dock-title').textContent = `${sys.name} — STATION`;
+  const p = game.player;
+  const used = cargoUsed(game);
+  const rows = marketFor(game);
+  const byKey = new Map(rows.map((r) => [r.key, r]));
+  const cargoLines = Object.entries(p.cargo)
+    .map(([k, v]) => {
+      const r = byKey.get(k);
+      return `  ${r ? r.name : k}: ${v} ${r ? r.unit : 't'}`;
+    }).join('\n') || '  (empty)';
+  el('dock-status').textContent =
+    `Commander: ${game.commanderName || 'JAMESON'}\n` +
+    `Credits: ${p.credits.toFixed(1)} CR\n` +
+    `Fuel: ${(p.fuel / 10).toFixed(1)} ly   Cargo: ${used}/${p.maxCargo} t\n` +
+    `Kills: ${game.kills}   Rating: ${rankName(game.kills)}\n` +
+    `Legal status: ${legalStatus(game.crime)}\n` +
+    `${sys.description}\n` +
+    `Cargo hold:\n${cargoLines}` +
+    (storageWarn ? `\n!! ${storageWarn}` : '');
+
+  // REFUEL is a two-credit action: say so by disabling it rather than
+  // silently doing nothing when the tank is full or the credits are not there.
+  el('btnRefuel').disabled = p.fuel >= 70 || p.credits < 2;
+
+  buildMissionScreen(); // the Navy briefing sits between status and tabs (#7)
+
+  const table = el('market');
+  // Equipment sits under the commodities in the same table: thirteen rows at
+  // their real equipment.plist prices (see EQUIPMENT_KEYS in game.js).
+  const eq = equipmentFor(game).map((r) => {
+    if (r.laser) {
+      // Lasers fit a mount, not a flag (#16): one button per mount, and the
+      // one that already holds this laser reads FITTED and stays disabled.
+      const btn = (m) => `<button data-act="equip" data-key="${r.key}"
+          data-mount="${m}" ${r[m] ? 'disabled' : ''}>${r[m] ? 'FITTED' : m.toUpperCase()}</button>`;
+      return `<tr>
+        <td>${r.name}</td>
+        <td>${r.price}</td>
+        <td colspan="2">${r.note}</td>
+        <td>${btn('fore')} ${btn('aft')}</td>
+      </tr>`;
+    }
+    const label = r.can ? 'BUY' : 'OWNED';
+    return `<tr>
+        <td>${r.name}</td>
+        <td>${r.price}</td>
+        <td colspan="2">${r.note}</td>
+        <td><button data-act="equip" data-key="${r.key}" ${r.can ? '' : 'disabled'}>${label}</button></td>
+      </tr>`;
+  }).join('');
+  table.innerHTML =
+    '<tr><th>Commodity</th><th>Price</th><th>Stock</th><th>Held</th><th></th></tr>' +
+    rows.map((r) => {
+      const held = p.cargo[r.key] || 0;
+      return `<tr>
+        <td>${r.name}${r.illegal ? '<span class="ill" title="illegal to sell">ILLEGAL</span>' : ''}</td>
+        <td>${r.price.toFixed(1)}</td>
+        <td>${r.stock}</td>
+        <td>${held}</td>
+        <td>
+          <button data-act="buy" data-key="${r.key}" ${r.stock ? '' : 'disabled'}>BUY</button>
+          <button data-act="sell" data-key="${r.key}" ${held ? '' : 'disabled'}>SELL</button>
+        </td></tr>`;
+    }).join('') +
+    '<tr><th colspan="5">EQUIPMENT</th></tr>' + eq;
+
+  buildShipyardScreen();
+}
+
+function buildShipyardScreen() {
+  const p = game.player;
+  const tradeIn = tradeInValue(game);
+  el('yard-note').textContent =
+    `Trade-in for your ${shipName(game, p.shipKey)}: ${tradeIn} CR`;
+  const rows = shipyardFor(game);
+  el('yard').innerHTML =
+    '<tr><th>Ship</th><th>Price</th><th>Cargo</th><th>Speed</th><th></th></tr>' +
+    (rows.length ? rows.map((r) => {
+      const can = p.credits + tradeIn >= r.price;
+      return `<tr>
+        <td>${r.name}</td>
+        <td>${r.price}</td>
+        <td>${r.cargo} t</td>
+        <td>${r.speed}</td>
+        <td><button data-key="${r.key}" ${can ? '' : 'disabled'}>BUY</button></td>
+      </tr>`;
+    }).join('') : '<tr><td colspan="5">NO SHIPS FOR SALE</td></tr>');
+}
+
+let showDockTab = () => {};
+function wireDockScreen() {
+  el('market').addEventListener('click', (e) => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    if (btn.dataset.act === 'buy') buyGood(game, btn.dataset.key, 1);
+    else if (btn.dataset.act === 'equip') buyEquipment(game, btn.dataset.key, btn.dataset.mount);
+    else sellGood(game, btn.dataset.key, 1);
+    playEvents();
+    buildMarketScreen();
+  });
+  showDockTab = (name) => {
+    el('sec-market').classList.toggle('hidden', name !== 'market');
+    el('sec-shipyard').classList.toggle('hidden', name !== 'shipyard');
+    el('tabMarket').classList.toggle('active', name === 'market');
+    el('tabShipyard').classList.toggle('active', name === 'shipyard');
+  };
+  el('tabMarket').addEventListener('click', () => showDockTab('market'));
+  el('tabShipyard').addEventListener('click', () => showDockTab('shipyard'));
+  el('yard').addEventListener('click', (e) => {
+    const btn = e.target.closest('button');
+    if (!btn || btn.disabled) return;
+    buyShip(game, btn.dataset.key);
+    playEvents();
+    buildMarketScreen();
+  });
+  el('btnLaunch').addEventListener('click', () => {
+    audio.unlock();
+    launchTrip(game); // the ten-second ride out of the tube (#6)
+    hideOverlays();
+    el('touch').classList.remove('hidden');
+  });
+  el('btnRefuel').addEventListener('click', () => {
+    const p = game.player;
+    if (p.fuel >= 70) return;
+    if (p.credits < 2) { return; }
+    p.credits -= 2;
+    p.fuel = 70;
+    audio.play('buy', { volume: 0.6 });
+    buildMarketScreen();
+  });
+  // SAVE menu next to the other station actions: three manual slots on top of
+  // the auto-save written when the ship docks.
+  const btnSave = document.createElement('button');
+  btnSave.id = 'btnSave';
+  btnSave.className = 'big';
+  btnSave.textContent = 'SAVE';
+  btnSave.addEventListener('click', () => {
+    openSlots(game, storage, { mode: 'save', onAction: playEvents });
+  });
+  el('docked').querySelector('.row').insertBefore(btnSave, el('btnLaunch'));
+}
+
+function hideOverlays() {
+  for (const id of ['title', 'docked', 'dead', 'loading']) el(id).classList.add('hidden');
+}
+
+// A fresh commander is asked for a name (#19), like the original's
+// LOAD NEW COMMANDER. Cancel or an empty line keeps the default; the name
+// rides along with every save from then on.
+function nameNewCommander() {
+  let answer = null;
+  try { answer = window.prompt('LOAD NEW COMMANDER — your name?', game.commanderName); } catch (e) { /* no prompt here */ }
+  const name = (answer || '').trim().slice(0, 24);
+  game.commanderName = name || 'JAMESON';
+}
+
+function syncPhase() {
+  if (game.phase === prevPhase) return;
+  prevPhase = game.phase;
+  if (game.phase !== 'flight') { closeChart(); closeStatus(); } // never leave a screen over a menu
+  if (game.phase === 'docked') {
+    // Auto-save on docking. A refused write (private mode, quota) would
+    // otherwise lose the commander with no word said, so say it on the
+    // screen the player is about to read — including a save this tab has
+    // just overwritten in another tab.
+    storageWarn = saveGame(game, storage)
+      ? (foreignSave ? 'OVERWROTE A SAVE WRITTEN IN ANOTHER TAB' : '')
+      : 'SAVE FAILED — storage is full or blocked, this game is NOT saved';
+    foreignSave = false;
+    el('touch').classList.add('hidden');
+    buildMarketScreen();
+    el('docked').classList.remove('hidden');
+  } else if (game.phase === 'dead') {
+    el('touch').classList.add('hidden');
+    audio.stopEngine();
+    el('dead-stats').textContent =
+      `Credits ${game.player.credits.toFixed(1)} CR · Kills ${game.kills} (${rankName(game.kills)}) · ` +
+      `Reached ${systemsIn(game)[game.systemIndex].name}`;
+    el('dead').classList.remove('hidden');
+  } else if (game.phase === 'flight') {
+    hideOverlays();
+    // the chart or the status screen owns the screen, so the sticks stay away
+    el('touch').classList.toggle('hidden', isChartOpen() || isStatusOpen() || isSetupOpen());
+  }
+}
+
+// ---------------------------------------------------------------------------
+function resize() {
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  renderer.resize(w, h, dpr);
+  hud.resize(w, h, dpr);
+
+  // Measure the HUD's corner gauge blocks (the band hud.js draws its bottom
+  // dials into, BOTTOM_BAND units up from the edge) so the touch controls can
+  // be laid out clear of them: --stick-b / --buttons-b is the bottom offset
+  // that keeps a control out of that band.
+  const s = Math.min(w / 640, h / 480);
+  const bandB = BOTTOM_BAND * s; // band height from the bottom edge
+  const colL = w / 2 - 279 * s;   // free width left of the band
+  const colR = w - (w / 2 + 278 * s); // free width right of it
+  const root = document.documentElement.style;
+  root.setProperty('--stick-b', `${colL >= 158 ? 8 : bandB + 8}px`);
+  root.setProperty('--buttons-b', `${colR >= 132 ? 8 : bandB + 8}px`);
+}
+
+function frame(now) {
+  const dt = Math.min(0.05, (now - lastT) / 1000);
+  lastT = now;
+  if (dt > 0) fpsSmooth = fpsSmooth * 0.9 + (1 / dt) * 0.1;
+  game.fps = fpsSmooth;
+
+  const c = updateCtrl();
+  // The CONTROLS page is a pause: the universe does not step behind it.
+  if (!isSetupOpen()) stepGame(game, {
+    pitch: c.pitch, yaw: c.yaw, roll: c.roll,
+    throttle: c.throttle, throttleSet: c.throttleSet,
+    fire: c.fire, injectors: c.injectors,
+    targetNext: c.targetNext, dockRequest: c.dockRequest,
+    launchMissile: c.launchMissile, ecm: c.ecm,
+    jump: jumpRequested || c.jump,
+  }, dt);
+  c.targetNext = false;
+  c.dockRequest = false;
+  c.launchMissile = false;
+  c.ecm = false;
+  c.jump = false;
+  jumpRequested = false;
+  clearTouchEdges();
+  syncThrottleKnob(game.player.throttle);
+
+  syncPhase();
+  playEvents();
+  // The auto-dock jingle (#21): a waltz while the docking computer flies, off
+  // again the moment it lets go — start/stop are idempotent, so every frame
+  // just states the truth.
+  if (game.autoDock && game.phase === 'flight') audio.startDockMusic();
+  else audio.stopDockMusic();
+
+  if (game.phase === 'flight') {
+    renderScene();
+    updateTargetReticle();
+    hud.draw(game);
+    audio.setEngine(game.player.throttle, true);
+  } else if (game.phase === 'title' || game.phase === 'dead') {
+    // keep the sky alive behind the menus
+    renderScene();
+    hud.draw(game);
+    audio.setEngine(0, false);
+  } else {
+    // docked: the station screen covers the HUD, so stop redrawing it at
+    // 60 fps behind an opaque panel — the canvas keeps its last frame
+    audio.setEngine(0, false);
+  }
+
+  requestAnimationFrame(frame);
+}
+
+async function main() {
+  renderer = new Renderer(glCanvas);
+  hud = new Hud(hudCanvas, { plists: { hud: {}, crosshairs: {} } });
+  resize();
+  window.addEventListener('resize', resize);
+  window.addEventListener('orientationchange', () => setTimeout(resize, 250));
+
+  try {
+    assets = await loadAssets((done, total, label) => {
+      const pct = total ? Math.round((done / total) * 100) : 0;
+      el('loading-fill').style.width = `${pct}%`;
+      el('loading-label').textContent = label || '';
+    });
+  } catch (err) {
+    el('loading-label').textContent = `failed to load: ${err.message}`;
+    throw err;
+  }
+
+  hud = new Hud(hudCanvas, assets);
+  hud.resize(window.innerWidth, window.innerHeight, Math.min(window.devicePixelRatio || 1, 2));
+  buildGpu();
+  // The PNGs are the 35 MB the title screen must not wait for: ships draw
+  // untextured until they land, then the material map is rebuilt.
+  loadTextures(assets).then(buildMeshTex, (err) => console.error('textures:', err));
+
+  game = createGame(assets);
+  audio = new GameAudio(assets.sounds);
+  storage = defaultStorage();
+  // Closing the tab mid-flight used to take everything since the last dock
+  // with it — the auto-save only runs on docking. applySave() rebuilds a
+  // flight save next to the station, so writing one here is safe at any moment.
+  window.addEventListener('pagehide', () => {
+    if (game && (game.phase === 'flight' || game.phase === 'docked')) saveGame(game, storage);
+  });
+  // Two tabs share one save key: whoever docks last writes and the other
+  // commander is gone. Nothing can stop that, so the overwrite is at least
+  // said out loud on the screen that writes the next one.
+  window.addEventListener('storage', (e) => {
+    if (e.key === SAVE_KEY) foreignSave = true;
+  });
+
+  setupKeyboard(window);
+  setupMouse(glCanvas);
+  setupGamepad();
+  initSettings(); // touch layout + gamepad bindings, before the first frame
+  setPhaseSource(() => (game ? game.phase : 'title'));
+  // Tap the radar to zoom it; the same predicate keeps the floating stick
+  // grab off the radar ellipse (both listen for pointerdown).
+  const overRadar = (x, y) => hud.scannerHit(x, y);
+  // MISSILE / ECM ride with the static flight buttons; created here (like
+  // CHART below) so the markup stays small — touch.js wires them by id.
+  for (const [id, label] of [['btnMissile', 'MISSILE'], ['btnEcm', 'ECM']]) {
+    const b = document.createElement('button');
+    b.id = id;
+    b.className = 'ctl';
+    b.textContent = label;
+    el('touch').querySelector('.buttons').insertBefore(b, el('btnFire'));
+  }
+  setupTouchControls({ overRadar });
+  window.addEventListener('pointerdown', (e) => {
+    if (e.pointerType !== 'touch' || !game.hudVisible) return;
+    if (overRadar(e.clientX, e.clientY)) zoomScanner(game, 1);
+  });
+  wireDockScreen();
+
+  // Title screen: offer the last docked save when there is a valid one, and a
+  // LOAD menu for the manual slots when any of them holds a game.
+  const titleAnchor = el('btnStart').nextSibling;
+  if (hasSave(storage)) {
+    const cont = document.createElement('button');
+    cont.id = 'btnContinue';
+    cont.className = 'big';
+    cont.textContent = 'CONTINUE';
+    cont.addEventListener('click', () => {
+      if (!loadGame(game, storage)) { cont.classList.add('hidden'); return; }
+      audio.unlock();
+      hideOverlays(); // title goes; syncPhase shows the restored dock/flight
+    });
+    el('title').insertBefore(cont, titleAnchor);
+  }
+  if (hasAnySlot(storage)) {
+    const load = document.createElement('button');
+    load.id = 'btnLoad';
+    load.className = 'big';
+    load.textContent = 'LOAD';
+    load.addEventListener('click', () => {
+      audio.unlock();
+      openSlots(game, storage, { mode: 'load', onLoaded: hideOverlays });
+    });
+    el('title').insertBefore(load, titleAnchor);
+  }
+
+  // Easy mode (MISSING-FEATURES #6): on = the assisted docking shortcut the
+  // game always had, off (default) = real docking. A local preference — it
+  // applies to every game started after it changes. ?easy / ?dock force it
+  // for the headless smokes; `query` below is a separate, later read.
+  const titleQuery = new URLSearchParams(location.search);
+  let easyPref = titleQuery.has('easy') || titleQuery.has('dock');
+  try {
+    easyPref = easyPref || localStorage.getItem(EASY_KEY) === '1';
+  } catch { /* storage unavailable: stay with the default */ }
+  const easyRow = document.createElement('label');
+  easyRow.className = 'hint';
+  easyRow.id = 'easyRow';
+  easyRow.style.display = 'block';
+  easyRow.style.cursor = 'pointer';
+  easyBox = document.createElement('input');
+  easyBox.type = 'checkbox';
+  easyBox.id = 'chkEasy';
+  easyBox.checked = easyPref;
+  easyRow.append(easyBox, document.createTextNode(' EASY MODE — ASSISTED DOCKING (off = real)'));
+  el('title').insertBefore(easyRow, el('btnStart'));
+  easyBox.addEventListener('change', () => {
+    game.easyDock = easyBox.checked;
+    try { localStorage.setItem(EASY_KEY, easyBox.checked ? '1' : '0'); } catch { /* ignore */ }
+  });
+  game.easyDock = easyPref;
+
+  // The chart and the status screen both own the flight screen, so opening
+  // one closes the other — keys, the two buttons and ?chart/?status all
+  // route through these. The chart takes 'long' to open on the galaxy-wide
+  // view (the ?chart=long smoke, #9).
+  const toggleChartUI = (view) => { closeStatus(); toggleChart(game, playEvents, view); };
+  const toggleStatusUI = () => { closeChart(); toggleStatus(game); };
+
+  // CHART button next to the other flight controls (the C key does the same).
+  const btnChart = document.createElement('button');
+  btnChart.id = 'btnChart';
+  btnChart.className = 'ctl';
+  btnChart.textContent = 'CHART';
+  btnChart.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    toggleChartUI();
+  });
+  el('touch').querySelector('.buttons').insertBefore(btnChart, el('btnFire'));
+
+  // STATUS button beside it (the 5 key does the same).
+  const btnStatus = document.createElement('button');
+  btnStatus.id = 'btnStatus';
+  btnStatus.className = 'ctl';
+  btnStatus.textContent = 'STATUS';
+  btnStatus.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    toggleStatusUI();
+  });
+  el('touch').querySelector('.buttons').insertBefore(btnStatus, el('btnFire'));
+
+  // CONTROLS page from every menu (title / docked / status markup) — one
+  // hook, so the entry points stay a class in the HTML.
+  for (const b of document.querySelectorAll('.js-setup')) {
+    b.addEventListener('click', openSetup);
+  }
+
+  // VIEW button beside them: cycles front → aft → port → starboard, the
+  // touch twin of the 1–4 keys (#14).
+  const btnView = document.createElement('button');
+  btnView.id = 'btnView';
+  btnView.className = 'ctl';
+  btnView.textContent = 'VIEW';
+  const viewPress = debounce(() => {
+    if (game.phase === 'flight') cycleView(game);
+  });
+  btnView.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    viewPress();
+  });
+  el('touch').querySelector('.buttons').insertBefore(btnView, el('btnFire'));
+
+  // LASER button beside it: swaps the primed mount forward ↔ aft, the touch
+  // twin of the T key (#16).
+  const btnLaser = document.createElement('button');
+  btnLaser.id = 'btnLaser';
+  btnLaser.className = 'ctl';
+  btnLaser.textContent = 'LASER';
+  const laserPress = debounce(() => {
+    if (game.phase === 'flight') cycleLaserMount(game);
+  });
+  btnLaser.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    laserPress();
+  });
+  el('touch').querySelector('.buttons').insertBefore(btnLaser, el('btnFire'));
+
+  window.addEventListener('keydown', (e) => {
+    if (e.repeat) return; // one press, one action — holding C must not flicker the chart
+    // Escape always works: it is how every screen is closed.
+    if (e.code === 'Escape') {
+      if (isSetupOpen()) closeSetup();
+      // in flight with nothing else on screen, Escape is the pause menu
+      else if (game.phase === 'flight' && !isChartOpen() && !isStatusOpen()) openSetup();
+      else { closeChart(); closeStatus(); closeSlots(); }
+      return;
+    }
+    // The CONTROLS page is a pause, so nothing may act on the game behind it:
+    // H teleports the ship, T swaps a laser, C/5 open a screen under it.
+    if (isSetupOpen()) return;
+    // A chart or status screen owns the keyboard. Only its own two keys stay
+    // live, and both route through the toggles that swap one screen for the other.
+    if ((isChartOpen() || isStatusOpen()) && e.code !== 'KeyC' && e.code !== 'Digit5') return;
+    if (e.code === 'KeyJ') jumpRequested = true;
+    if (e.code === 'KeyH') jdrive(game); // the ZX in-system J-drive (#20)
+    if (e.code === 'KeyN') renderer.wireframe = !renderer.wireframe; // #22
+    if (e.code === 'KeyZ') zoomScanner(game, e.shiftKey ? -1 : 1); // Oolite z / Z
+    if (e.code === 'KeyC') toggleChartUI(); // Oolite F is full throttle here
+    if (e.code === 'Digit5') toggleStatusUI(); // Oolite's status-screen key
+    // view keys 1–4: front / aft / left / right, in flight (#14)
+    if (game.phase === 'flight') {
+      if (e.code === 'Digit1') setView(game, 'front');
+      if (e.code === 'Digit2') setView(game, 'aft');
+      if (e.code === 'Digit3') setView(game, 'port');
+      if (e.code === 'Digit4') setView(game, 'starboard');
+      // T swaps the primed laser mount between fore and aft (#16)
+      if (e.code === 'KeyT') cycleLaserMount(game);
+    }
+  });
+
+  el('btnStart').addEventListener('click', () => {
+    audio.unlock();
+    nameNewCommander();
+    launchTrip(game); // the ten-second ride out of the tube (#6)
+    hideOverlays();
+    el('touch').classList.remove('hidden');
+  });
+  el('btnRestart').addEventListener('click', () => {
+    game = createGame(assets);
+    game.easyDock = easyBox.checked; // the checkbox survives a restart
+    prevPhase = 'title';
+    audio.unlock();
+    nameNewCommander();
+    launchTrip(game);
+    hideOverlays();
+    el('touch').classList.remove('hidden');
+  });
+  const jumpPress = debounce(() => { jumpRequested = true; });
+  el('btnJump').addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    jumpPress();
+  });
+
+  // Loading is done: hand over to the title screen.
+  el('loading').classList.add('hidden');
+  el('title').classList.remove('hidden');
+
+  // ?autostart skips the title screen (used by the headless smoke test)
+  const query = new URLSearchParams(location.search);
+  if (query.has('autostart')) {
+    audio.unlock();
+    // ?trip takes the ten-second launch ride (#6); the plain smoke skips it
+    if (query.has('trip')) launchTrip(game);
+    else launch(game);
+    hideOverlays();
+    el('touch').classList.remove('hidden');
+    // ?dock drops the ship next to the station so the market screen is testable
+    if (query.has('dock')) {
+      game.player.pos = [0, 0, 300];
+      game.player.speed = 20;
+      // ?yard opens the shipyard tab of the station screen
+      if (query.has('yard')) showDockTab('shipyard');
+    }
+    // ?zoom=N sets the scanner zoom (headless smoke test for the radar zoom)
+    const z = Number(query.get('zoom'));
+    if (query.has('zoom') && z >= 1 && z <= 5) game.scannerZoom = Math.round(z);
+    // ?view=aft|port|starboard starts in another view (headless smoke, #14)
+    if (query.has('view')) setView(game, query.get('view'));
+    // ?wire starts in wireframe display mode (headless smoke, #22)
+    if (query.has('wire')) renderer.wireframe = true;
+    // ?thargoid puts the alien warship ahead of the nose (headless smoke test)
+    if (query.has('thargoid')) spawnThargoid(game);
+    // ?jdrive presses the in-system J-drive once (headless smoke, #20): with
+    // the station right ahead the drive must refuse, warn and stay put
+    if (query.has('jdrive')) {
+      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyH' }));
+      setTimeout(() => {
+        if (!game.messages.some((m) => m.text.startsWith('J-DRIVE BLOCKED'))) {
+          console.error('jdrive smoke: no refusal near the station');
+        } else console.log('jdrive smoke: refused with the warning');
+      }, 100);
+    }
+    // ?dcomp fits the docking computer and presses DOCK (headless smoke, #21):
+    // the autopilot takes the ship, which is what starts its music
+    if (query.has('dcomp')) {
+      game.player.equipment.EQ_DOCK_COMP = true;
+      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Enter' }));
+      let tries = 0;
+      const t = setInterval(() => {
+        if (game.autoDock) { clearInterval(t); console.log('dcomp smoke: autopilot engaged'); }
+        else if (++tries > 100) { clearInterval(t); console.error('dcomp smoke: autopilot never engaged'); }
+      }, 25);
+    }
+    // ?chart opens the short-range chart, ?chart=long the whole galaxy (#9)
+    if (query.has('chart')) {
+      toggleChartUI(query.get('chart') === 'long' ? 'long' : undefined);
+    }
+    // ?status opens the in-flight status screen (headless smoke test)
+    if (query.has('status')) toggleStatusUI();
+    // ?witchspace forces the mis-jump (#10): the smoke checks the stranded
+    // state — no station, three Thargoids — for console errors
+    if (query.has('witchspace')) {
+      const rand = game.rand; // restore at once: a stuck () => 0 mis-jumps
+      game.rand = () => 0;     // every later jump (game.js:1290) and docks
+      jump(game);              // a trumble (game.js:1083) in this tab
+      game.rand = rand;
+    }
+    // ?dodo swaps in a dodecahedron station from a system whose real
+    // planetinfo says so, for the headless smoke (#13)
+    if (query.has('dodo')) {
+      const key = Object.keys(game.planetinfo).find((k) => k.startsWith(`${(game.galaxy || 1) - 1} `)
+        && game.planetinfo[k].station === 'dodecahedron');
+      if (key) {
+        game.systemIndex = Number(key.split(' ')[1]);
+        game.entities = game.entities.filter((e) => e.type !== 'station');
+        game.station = null;
+        spawnStation(game);
+      }
+    }
+  }
+
+  // ?slots=1|2 — headless smoke for the slot menus (README "Development"):
+  // step 1 saves into slot 1 at the station and reloads to the title screen,
+  // step 2 loads that slot back. Every failure is a console.error, which the
+  // smoke run greps for.
+  const slotsStep = query.get('slots');
+  if (slotsStep === '1') {
+    let tries = 0;
+    const waitDock = setInterval(() => {
+      if (game.phase !== 'docked' && ++tries < 400) return;
+      clearInterval(waitDock);
+      if (game.phase !== 'docked') { console.error('slots smoke: never docked'); return; }
+      el('btnSave').click();
+      const tap = () => document.querySelector('#slots button[data-slot="0"]').click();
+      tap(); tap(); // arm the overwrite confirmation, then confirm it
+      const info = slotInfo(0, storage);
+      if (!info) { console.error('slots smoke: slot 1 was not written'); return; }
+      console.log(`slots smoke: saved ${galaxySystems(info.galaxy)[info.systemIndex].name}`);
+      location.replace(`${location.pathname}?slots=2`);
+    }, 25);
+  } else if (slotsStep === '2') {
+    const btnLoad = el('btnLoad');
+    if (!btnLoad) console.error('slots smoke: no LOAD button (slot 1 missing?)');
+    else {
+      btnLoad.click();
+      const btn = document.querySelector('#slots button[data-slot="0"]');
+      if (!btn || btn.disabled) console.error('slots smoke: slot 1 not loadable');
+      else {
+        btn.click();
+        if (game.phase !== 'docked') console.error('slots smoke: load did not restore the save');
+        else console.log(`slots smoke: loaded ${systemsIn(game)[game.systemIndex].name}`);
+      }
+    }
+  } else if (slotsStep === 'save' || slotsStep === 'load') {
+    // open one menu and leave it up, so a screenshot can check the layout
+    let tries = 0;
+    const t = setInterval(() => {
+      const btn = slotsStep === 'save'
+        ? (game.phase === 'docked' ? el('btnSave') : null)
+        : el('btnLoad');
+      if (btn) { clearInterval(t); btn.click(); }
+      else if (++tries > 400) { clearInterval(t); console.error(`slots smoke: no ${slotsStep} menu`); }
+    }, 25);
+  }
+
+  // ?mission=1 — headless smoke for the Navy briefing (#7): wait until docked,
+  // press ACCEPT MISSION, and report what the panel shows afterwards. Any
+  // failure is a console.error, which the smoke run greps for.
+  if (query.has('mission')) {
+    let tries = 0;
+    const t = setInterval(() => {
+      if (game.phase !== 'docked' && ++tries < 400) return;
+      clearInterval(t);
+      const accept = el('dock-mission').querySelector('button');
+      if (game.phase !== 'docked' || !accept) {
+        console.error('mission smoke: no ACCEPT button on the docked screen');
+        return;
+      }
+      accept.click();
+      const view = missionView(game);
+      if (!view || view.mode !== 'active') console.error('mission smoke: accept did not start the mission');
+      else console.log(`mission smoke: accepted ${game.mission.active}`);
+    }, 25);
+  }
+
+  requestAnimationFrame((t) => { lastT = t; requestAnimationFrame(frame); });
+}
+
+main().catch((err) => {
+  console.error(err);
+  const label = document.getElementById('loading-label');
+  if (label) label.textContent = `error: ${err.message}`;
+});
